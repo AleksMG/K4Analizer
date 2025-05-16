@@ -1,4 +1,3 @@
-// English letter frequencies (percentages)
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -8,7 +7,6 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-// Common English words and patterns
 const COMMON_PATTERNS = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -20,18 +18,18 @@ const COMMON_PATTERNS = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.running = false;
         this.keysTested = 0;
         this.lastReportTime = 0;
         this.bestScore = 0;
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         
         self.onmessage = (e) => this.handleMessage(e.data);
     }
 
     handleMessage(message) {
         switch (message.type) {
-            case 'start':
+            case 'init':
                 this.alphabet = message.alphabet || this.alphabet;
                 this.startAttack(
                     message.ciphertext,
@@ -61,7 +59,7 @@ class K4Worker {
         this.lastReportTime = this.startTime;
         this.keysTested = 0;
         
-        this.generateAndTestKeys();
+        this.processKeys();
     }
 
     *keyGenerator() {
@@ -75,11 +73,10 @@ class K4Worker {
         }
         
         while (this.running) {
-            // Convert indices to key
             const key = indices.map(i => this.alphabet[i]).join('');
             yield key;
             
-            // Increment key (like an odometer)
+            // Increment key
             let pos = this.keyLength - 1;
             while (pos >= 0) {
                 indices[pos] = (indices[pos] + this.totalWorkers) % alphabetLength;
@@ -91,10 +88,10 @@ class K4Worker {
         }
     }
 
-    generateAndTestKeys() {
+    processKeys() {
         const generator = this.keyGenerator();
-        const reportInterval = 1000; // ms
-        const keysPerBatch = 5000;
+        const reportInterval = 1000;
+        const keysPerBatch = 10000;
         
         const processBatch = () => {
             if (!this.running) return;
@@ -126,7 +123,6 @@ class K4Worker {
                 result = generator.next();
             }
             
-            // Report progress
             const now = performance.now();
             if (now - this.lastReportTime >= reportInterval) {
                 self.postMessage({
@@ -178,20 +174,19 @@ class K4Worker {
         let score = 0;
         let method = 'basic';
         
-        // 1. Known plaintext match (highest priority)
+        // 1. Known plaintext match
         if (this.knownPlaintext && this.knownPlaintext.length > 0) {
             const matchIndex = plaintext.indexOf(this.knownPlaintext);
             if (matchIndex >= 0) {
                 score += 1000 * this.knownPlaintext.length;
                 method = 'known-text';
                 
-                // Extra bonus for position
                 if (matchIndex === 0) score += 500;
                 if (matchIndex < 10) score += 200;
             }
         }
         
-        // 2. Frequency analysis (only if standard alphabet)
+        // 2. Frequency analysis
         if (this.alphabet === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
             const freq = {};
             const totalLetters = plaintext.replace(/[^A-Z]/g, '').length || 1;
@@ -230,11 +225,11 @@ class K4Worker {
             method = 'patterns';
         }
         
-        // 4. Word boundaries (spaces)
+        // 4. Word boundaries
         const spaceCount = (plaintext.match(/ /g) || []).length;
         score += spaceCount * 15;
         
-        // 5. Penalty for non-alphabet characters
+        // 5. Penalty for invalid chars
         const invalidChars = plaintext.replace(new RegExp(`[${this.alphabet} ]`, 'g'), '').length;
         score -= invalidChars * 10;
         
@@ -242,5 +237,4 @@ class K4Worker {
     }
 }
 
-// Start the worker
 new K4Worker();
