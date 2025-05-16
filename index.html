@@ -3,141 +3,267 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kryptos K4 Decryptor</title>
-    <!-- Ошибка 1: Отсутствовала ссылка на Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Kryptos K4 Professional Decryption Suite</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Orbitron:wght@500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
-    <!-- Ошибка 2: Не было favicon -->
-    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
 </head>
 <body>
     <div class="container">
-        <!-- Ошибка 3: Неправильная кодировка спецсимвола -->
-        <h1>🔐 Kryptos K4 Professional Decryptor</h1>
-        
-        <div class="control-panel">
-            <div class="input-group">
-                <!-- Ошибка 4: Не было связи label с input через for/id -->
-                <label for="ciphertextInput">Ciphertext (97 chars):</label>
-                <!-- Ошибка 5: Не было валидации длины текста -->
-                <textarea id="ciphertext" rows="4" maxlength="97" 
-                    placeholder="Exactly 97 uppercase letters (A-Z)">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPKWGDKZXTJCDIGKUHUAUEKCAR</textarea>
-                <div id="ciphertextError" class="error-message"></div>
+        <header class="app-header">
+            <div class="logo-container">
+                <i class="fas fa-lock-open"></i>
+                <h1>Kryptos K4 <span class="highlight">Professional</span> Decryptor</h1>
+            </div>
+            <div class="header-controls">
+                <button id="helpBtn" class="icon-btn" title="Help"><i class="fas fa-question-circle"></i></button>
+                <button id="settingsBtn" class="icon-btn" title="Settings"><i class="fas fa-cog"></i></button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Panel -->
+            <div class="control-panel">
+                <section class="input-section">
+                    <div class="input-group ciphertext-group">
+                        <label for="ciphertext"><i class="fas fa-keyboard"></i> Ciphertext (97 chars)</label>
+                        <textarea id="ciphertext" spellcheck="false">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
+                        <div class="char-counter"><span id="charCount">97</span>/97</div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="knownPlaintext"><i class="fas fa-font"></i> Known Plaintext</label>
+                        <input type="text" id="knownPlaintext" placeholder="e.g. 'BERLIN'">
+                    </div>
+                </section>
+
+                <section class="alphabet-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-sort-alpha-down"></i> Alphabet Configuration</h3>
+                        <button id="alphabetHelp" class="mini-btn"><i class="fas fa-info-circle"></i></button>
+                    </div>
+                    <div class="input-group">
+                        <label for="customAlphabet">Custom Alphabet</label>
+                        <input type="text" id="customAlphabet" 
+                               value="KRYPTOSABCDEFGHIJLMNQUVWXZ"
+                               pattern="[A-Z]{16,}">
+                        <div class="alphabet-buttons">
+                            <button id="resetAlphabet" class="small-btn"><i class="fas fa-undo"></i> Reset</button>
+                            <button id="analyzeAlphabet" class="small-btn"><i class="fas fa-chart-bar"></i> Analyze</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-sliders-h"></i> Decryption Parameters</h3>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="setting">
+                            <label for="keyLength"><i class="fas fa-key"></i> Key Length</label>
+                            <input type="number" id="keyLength" min="4" max="12" value="9">
+                        </div>
+                        <div class="setting">
+                            <label for="workers"><i class="fas fa-microchip"></i> Workers</label>
+                            <div class="range-container">
+                                <input type="range" id="workers" min="1" max="16" value="8">
+                                <span id="workersValue">8</span>
+                            </div>
+                        </div>
+                        <div class="setting">
+                            <label for="minScore"><i class="fas fa-bullseye"></i> Min Score</label>
+                            <input type="number" id="minScore" min="0" max="1000" value="50">
+                        </div>
+                        <div class="setting">
+                            <label for="searchMode"><i class="fas fa-search"></i> Mode</label>
+                            <select id="searchMode">
+                                <option value="full">Full Attack</option>
+                                <option value="incremental">Incremental</option>
+                                <option value="pattern">Pattern Match</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="action-section">
+                    <div class="action-buttons">
+                        <button id="startBtn" class="btn-primary">
+                            <i class="fas fa-rocket"></i> Start Attack
+                        </button>
+                        <button id="stopBtn" class="btn-danger" disabled>
+                            <i class="fas fa-stop-circle"></i> Stop
+                        </button>
+                        <button id="pauseBtn" class="btn-warning" disabled>
+                            <i class="fas fa-pause-circle"></i> Pause
+                        </button>
+                        <button id="resetBtn" class="btn-secondary">
+                            <i class="fas fa-eraser"></i> Reset
+                        </button>
+                    </div>
+                </section>
             </div>
 
-            <div class="input-group">
-                <label for="knownPlaintext">Known plaintext fragment:</label>
-                <input type="text" id="knownPlaintext" 
-                    placeholder="e.g. BERLIN, NORTHEAST">
-            </div>
+            <!-- Right Panel -->
+            <div class="results-panel">
+                <div class="results-header">
+                    <h2><i class="fas fa-chart-line"></i> Decryption Analytics</h2>
+                    <div class="export-buttons">
+                        <button id="exportResults" class="small-btn"><i class="fas fa-file-export"></i> Export</button>
+                        <button id="saveSession" class="small-btn"><i class="fas fa-save"></i> Save</button>
+                    </div>
+                </div>
 
-            <div class="settings-grid">
-                <!-- Ошибка 6: Неправильная структура сетки настроек -->
-                <div class="setting">
-                    <label for="keyLength">Key length (4-12):</label>
-                    <input type="number" id="keyLength" min="4" max="12" value="9">
-                </div>
-                <div class="setting">
-                    <label for="workersRange">Workers:</label>
-                    <input type="range" id="workers" min="1" max="8" value="4">
-                    <span id="workersValue">4</span>
-                </div>
-                <div class="setting">
-                    <label for="minScore">Minimum score:</label>
-                    <input type="number" id="minScore" min="0" max="1000" value="50">
-                </div>
-            </div>
+                <div class="stats-container">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Elapsed</div>
+                                <div id="elapsedTime" class="stat-value">00:00:00</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-key"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Keys Tested</div>
+                                <div id="keysTested" class="stat-value">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-tachometer-alt"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Keys/sec</div>
+                                <div id="keysPerSec" class="stat-value">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-trophy"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-label">Top Score</div>
+                                <div id="topScore" class="stat-value">0</div>
+                            </div>
+                        </div>
+                    </div>
 
-            <div class="action-buttons">
-                <!-- Ошибка 7: Не было обработчиков событий в HTML -->
-                <button id="startBtn" class="btn-primary">🚀 Start Attack</button>
-                <button id="stopBtn" class="btn-danger" disabled>⏹ Stop</button>
-                <button id="resetBtn" class="btn-secondary">🔄 Reset</button>
-            </div>
-        </div>
+                    <div class="progress-section">
+                        <div class="progress-header">
+                            <div class="progress-title">
+                                <i class="fas fa-spinner"></i> Progress
+                                <span id="completionPercent">0%</span>
+                            </div>
+                            <div class="progress-eta">
+                                ETA: <span id="eta">--:--:--</span>
+                            </div>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="progressFill" class="progress-fill"></div>
+                        </div>
+                        <div class="key-display">
+                            Current Key: <code id="currentKey">AAAAAAAAA</code>
+                        </div>
+                    </div>
+                </div>
 
-        <!-- Ошибка 8: Не было структуры для отображения ошибок -->
-        <div id="globalError" class="error-banner"></div>
+                <div class="results-tabs">
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-tab="candidates">
+                            <i class="fas fa-medal"></i> Top Candidates
+                        </button>
+                        <button class="tab-btn" data-tab="decrypted">
+                            <i class="fas fa-eye"></i> Decrypted Text
+                        </button>
+                        <button class="tab-btn" data-tab="frequency">
+                            <i class="fas fa-wave-square"></i> Frequency
+                        </button>
+                        <button class="tab-btn" data-tab="history">
+                            <i class="fas fa-history"></i> History
+                        </button>
+                    </div>
 
-        <div class="analytics-panel">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="stat-label">⏱ Elapsed:</span>
-                    <span id="elapsedTime" class="stat-value">0s</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">🔑 Keys tested:</span>
-                    <span id="keysTested" class="stat-value">0</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">⚡ Keys/sec:</span>
-                    <span id="keysPerSec" class="stat-value">0</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">🏆 Top score:</span>
-                    <span id="topScore" class="stat-value">0</span>
-                </div>
-      <div class="progress-details">
-  <div>Total keys: <span id="totalKeys">0</span></div>
-  <div>Keys processed: <span id="processedKeys">0</span></div>
-  <div>Current key: <code id="currentKey">-</code></div>
-      </div>
-            </div>
-            <div class="progress-container">
-                <!-- Ошибка 9: Не было подписей к прогресс-бару -->
-                <div class="progress-labels">
-                    <span>Progress: <span id="progressPercent">0</span>%</span>
-                    <span id="currentKeyDisplay">Current key: AAAAA</span>
-                </div>
-                <div class="progress-bar">
-                    <div id="progressBar" class="progress-fill"></div>
-                </div>
-            </div>
-        </div>
+                    <div class="tab-content active" id="candidates-tab">
+                        <div id="topResults" class="results-grid">
+                            <!-- Result Template -->
+                            <div class="result-template">
+                                <div class="result-card">
+                                    <div class="result-header">
+                                        <span class="result-key">KEYHERE</span>
+                                        <span class="result-score">Score: <span>100</span></span>
+                                    </div>
+                                    <div class="result-text">
+                                        Lorem ipsum dolor sit amet, consectetur adipiscing elit...
+                                    </div>
+                                    <div class="result-footer">
+                                        <span class="result-meta">
+                                            <i class="fas fa-clock"></i> <span class="found-time">00:00:15</span>
+                                            <i class="fas fa-key"></i> <span class="key-index">1,245,678</span>
+                                        </span>
+                                        <button class="result-save-btn">
+                                            <i class="fas fa-bookmark"></i> Save
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-        <div class="results-container">
-            <!-- Ошибка 10: Не было адаптивной сетки результатов -->
-            <div class="results-column">
-                <h3>💎 Top candidates</h3>
-                <div id="topResults" class="results-grid">
-                    <!-- Шаблон для результатов -->
-                    <div class="result-template" style="display:none;">
-                        <div class="result-card">
-                            <div class="result-key"></div>
-                            <div class="result-text"></div>
-                            <div class="result-score"></div>
-                            <div class="result-eta"></div>
+                    <div class="tab-content" id="decrypted-tab">
+                        <div id="decryptedText" class="decrypted-text">
+                            <!-- Decrypted text will appear here -->
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="frequency-tab">
+                        <div id="frequencyChart" class="frequency-chart">
+                            <!-- Frequency chart will be rendered here -->
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="history-tab">
+                        <div id="historyList" class="history-list">
+                            <!-- Session history will appear here -->
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="results-column">
-                <h3>🔍 Decrypted text</h3>
-                <div id="decryptedText" class="decrypted-text"></div>
-                <h3>📊 Frequency analysis</h3>
-                <div id="frequencyChart" class="frequency-chart"></div>
-            </div>
         </div>
     </div>
 
-    <!-- Ошибка 11: Не было загрузки скриптов в правильном порядке -->
-    <script src="polyfills.js"></script>
-    <script src="workerManager.js"></script>
-    <script src="uiManager.js"></script>
-    <script src="app.js"></script>
-    
-    <!-- Инициализация приложения -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            try {
-                const app = new K4Decryptor();
-                window.app = app; // Для доступа из консоли
-            } catch (error) {
-                console.error('Application failed to start:', error);
-                document.getElementById('globalError').textContent = 
-                    `Fatal error: ${error.message}`;
-            }
-        });
-    </script>
+    <!-- Hidden templates -->
+    <template id="resultTemplate">
+        <div class="result-card">
+            <div class="result-header">
+                <span class="result-key"></span>
+                <span class="result-score"></span>
+            </div>
+            <div class="result-text"></div>
+            <div class="result-footer">
+                <span class="result-meta">
+                    <i class="fas fa-clock"></i> <span class="found-time"></span>
+                    <i class="fas fa-key"></i> <span class="key-index"></span>
+                </span>
+                <button class="result-save-btn">
+                    <i class="fas fa-bookmark"></i> Save
+                </button>
+            </div>
+        </div>
+    </template>
+
+    <template id="historyItemTemplate">
+        <div class="history-item">
+            <div class="history-time"></div>
+            <div class="history-key"></div>
+            <div class="history-score"></div>
+            <button class="history-load-btn">
+                <i class="fas fa-undo"></i> Restore
+            </button>
+        </div>
+    </template>
+
+    <!-- JavaScript Files -->
+    <script src="js/polyfills.js"></script>
+    <script src="js/workerManager.js"></script>
+    <script src="js/analytics.js"></script>
+    <script src="js/uiManager.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
