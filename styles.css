@@ -1,4 +1,3 @@
-/* Base Styles */
 :root {
     --primary-color: #2c3e50;
     --secondary-color: #3498db;
@@ -26,7 +25,6 @@ body {
     padding: 2rem;
 }
 
-/* Header Styles */
 .app-header {
     display: flex;
     justify-content: space-between;
@@ -43,6 +41,12 @@ body {
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s, opacity 0.2s;
+    background: var(--secondary-color);
+    color: white;
+}
+
+.cta-btn.danger {
+    background: var(--danger-color);
 }
 
 .cta-btn:hover {
@@ -50,12 +54,6 @@ body {
     opacity: 0.9;
 }
 
-.danger {
-    background: var(--danger-color);
-    color: white;
-}
-
-/* Input Styles */
 .cipher-input {
     width: 100%;
     padding: 1rem;
@@ -79,14 +77,6 @@ body {
     gap: 1rem;
 }
 
-/* Progress Visualization */
-.live-progress {
-    margin: 2rem 0;
-    background: #f8f9fa;
-    padding: 1.5rem;
-    border-radius: 8px;
-}
-
 .progress-bar-container {
     height: 20px;
     background: #eee;
@@ -101,13 +91,15 @@ body {
     transition: width 0.3s ease;
 }
 
-/* Results Styles */
 .results-list {
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
     max-height: 400px;
     overflow-y: auto;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 8px;
 }
 
 .result-item {
@@ -119,10 +111,6 @@ body {
     grid-template-columns: 1fr 3fr 1fr;
     gap: 1rem;
     transition: box-shadow 0.2s;
-}
-
-.result-item:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .comparison-box {
@@ -137,4 +125,20 @@ body {
     background: #f1c40f;
     padding: 2px 4px;
     border-radius: 4px;
+}
+
+.performance-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 8px;
 }
