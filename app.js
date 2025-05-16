@@ -1,207 +1,172 @@
-class K4Breaker {
+class K4Decryptor {
     constructor() {
         this.workers = [];
         this.isRunning = false;
         this.startTime = null;
+        this.totalKeys = 0;
         this.keysProcessed = 0;
         this.bestScore = 0;
-        this.currentTimeout = null;
+        this.currentKey = '';
+        this.maxTime = 5 * 60 * 1000; // 5 минут
+        this.timeoutId = null;
 
         this.initControls();
-        this.initWorkers();
+        this.updateUI();
     }
 
     initControls() {
         document.getElementById('startBtn').addEventListener('click', () => this.start());
         document.getElementById('stopBtn').addEventListener('click', () => this.stop());
-        document.getElementById('workersSlider').addEventListener('input', (e) => {
+        document.getElementById('workers').addEventListener('input', e => {
             document.getElementById('workersValue').textContent = e.target.value;
-            this.initWorkers();
         });
-    }
-
-    initWorkers() {
-        this.workers.forEach(worker => worker.terminate());
-        const workerCount = parseInt(document.getElementById('workersSlider').value);
-        this.workers = Array.from({ length: workerCount }, () => {
-            const worker = new Worker('worker.js');
-            worker.onmessage = (e) => this.handleWorkerMessage(e);
-            return worker;
+        document.getElementById('maxTime').addEventListener('change', e => {
+            this.maxTime = e.target.value * 60 * 1000;
         });
     }
 
     start() {
         if (this.isRunning) return;
         
-        this.resetState();
+        const ciphertext = document.getElementById('ciphertext').value
+            .toUpperCase()
+            .replace(/[^A-Z]/g, '');
+
+        if (ciphertext.length !== 97) {
+            this.showError('Invalid K4 cipher! Must be exactly 97 characters.');
+            return;
+        }
+
+        this.initializeWorkers(ciphertext);
         this.isRunning = true;
-        const config = this.getConfig();
-        
-        this.workers.forEach(worker => {
-            worker.postMessage({
-                type: 'START',
-                config: {
-                    ciphertext: config.ciphertext,
-                    alphabet: config.alphabet,
-                    keyLength: this.calculateKeyLength(config.ciphertext),
-                    knownText: config.knownText,
-                    timeout: config.timeout
-                }
-            });
-        });
-
         this.startTime = performance.now();
-        this.updateUI();
-        this.currentTimeout = setTimeout(() => this.stop(), config.timeout);
+        this.timeoutId = setTimeout(() => this.stop(), this.maxTime);
+        requestAnimationFrame(() => this.updateUI());
     }
 
-    getConfig() {
-        return {
-            ciphertext: document.getElementById('ciphertext').value.toUpperCase().replace(/[^A-Z]/g, ''),
-            alphabet: this.validateAlphabet(document.getElementById('customAlphabet').value),
-            knownText: document.getElementById('knownText').value.toUpperCase(),
-            timeout: parseInt(document.getElementById('timeout').value) * 1000
-        };
-    }
-
-    validateAlphabet(alphabet) {
-        if (alphabet.length !== 26) {
-            alert('Alphabet must be exactly 26 characters!');
-            throw new Error('Invalid alphabet length');
-        }
-        return [...new Set(alphabet)].join('').toUpperCase();
-    }
-
-    calculateKeyLength(ciphertext) {
-        const factors = this.kasiskiTest(ciphertext);
-        return factors.length > 0 ? factors[0] : 8;
-    }
-
-    kasiskiTest(text, minSeqLength = 3) {
-        const sequences = new Map();
+    initializeWorkers(ciphertext) {
+        const workerCount = parseInt(document.getElementById('workers').value);
+        const keyLength = parseInt(document.getElementById('keyLength').value);
+        const alphabetSize = 25; // KRYPTOS alphabet (25 букв)
+        this.totalKeys = Math.pow(alphabetSize, keyLength);
         
-        for (let i = 0; i <= text.length - minSeqLength; i++) {
-            const seq = text.substr(i, minSeqLength);
-            sequences.set(seq, [...(sequences.get(seq) || [], i]);
-        }
-
-        const distances = [];
-        for (const [seq, positions] of sequences.entries()) {
-            if (positions.length > 1) {
-                for (let i = 1; i < positions.length; i++) {
-                    distances.push(positions[i] - positions[i - 1]);
-                }
-            }
-        }
-
-        const factorCounts = new Map();
-        for (const distance of distances) {
-            const factors = this.primeFactors(distance);
-            factors.forEach(factor => {
-                factorCounts.set(factor, (factorCounts.get(factor) || 0) + 1);
+        this.workers = Array.from({length: workerCount}, (_, i) => {
+            const worker = new Worker(window.workerUrl);
+            worker.onmessage = e => this.handleWorkerMessage(e.data);
+            worker.postMessage({
+                type: 'INIT',
+                ciphertext,
+                alphabet: 'KRYPTOSABCDEFGHIJLMNQUVWXZ',
+                keyLength,
+                workerId: i
             });
-        }
-
-        return Array.from(factorCounts.entries())
-            .sort((a, b) => b[1] - a[1])
-            .map(([factor]) => factor);
+            return worker;
+        });
     }
 
-    primeFactors(n) {
-        const factors = new Set();
-        while (n % 2 === 0) {
-            factors.add(2);
-            n /= 2;
-        }
-        for (let i = 3; i <= Math.sqrt(n); i += 2) {
-            while (n % i === 0) {
-                factors.add(i);
-                n /= i;
-            }
-        }
-        if (n > 2) factors.add(n);
-        return Array.from(factors);
-    }
-
-    handleWorkerMessage(event) {
+    handleWorkerMessage(data) {
         if (!this.isRunning) return;
 
-        const { type, data } = event.data;
-        switch (type) {
+        switch(data.type) {
             case 'PROGRESS':
                 this.keysProcessed += data.keysProcessed;
                 break;
             
             case 'RESULT':
-                this.processResult(data);
+                if (data.score > this.bestScore) {
+                    this.bestScore = data.score;
+                    this.currentKey = data.key;
+                    this.displayResult(data);
+                    this.updateLivePreview(data.text);
+                }
                 break;
-        }
-    }
-
-    processResult(result) {
-        if (result.score > this.bestScore) {
-            this.bestScore = result.score;
-            this.displayResult(result);
-            this.checkKnownTextMatch(result.text);
+            
+            case 'ERROR':
+                this.showError(data.message);
+                this.stop();
+                break;
         }
     }
 
     displayResult(result) {
         const resultElement = document.createElement('div');
-        resultElement.className = 'result-item';
+        resultElement.className = 'result-card';
         resultElement.innerHTML = `
-            <div class="key">${result.key}</div>
-            <div class="text">${result.text.substring(0, 60)}</div>
-            <div class="score">${result.score.toFixed(1)}</div>
+            <div class="key">KEY: <strong>${result.key}</strong></div>
+            <div class="text">${this.highlightPatterns(result.text)}</div>
+            <div class="stats">
+                <span>Score: ${result.score.toFixed(1)}</span>
+                <span>Entropy: ${result.entropy.toFixed(2)}</span>
+            </div>
         `;
-        document.getElementById('resultsList').prepend(resultElement);
+        document.getElementById('topResults').prepend(resultElement);
     }
 
-    checkKnownTextMatch(text) {
-        const knownText = document.getElementById('knownText').value.toUpperCase();
-        if (!knownText || !text.includes(knownText)) return;
+    highlightPatterns(text) {
+        const patterns = ['BERLIN', 'CLOCK', 'NORTHEAST'];
+        let highlighted = text;
+        patterns.forEach(pattern => {
+            const regex = new RegExp(`(${pattern})`, 'gi');
+            highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+        });
+        return highlighted;
+    }
 
-        const highlighted = text.replace(
-            new RegExp(knownText, 'gi'),
-            '<span class="highlight-match">$&</span>'
-        );
-
-        document.getElementById('textComparison').innerHTML = `
-            <div class="match-alert">🎉 Match Found!</div>
-            <div class="comparison-text">${highlighted}</div>
-        `;
+    updateLivePreview(text) {
+        const preview = document.getElementById('livePreview');
+        preview.innerHTML = this.highlightPatterns(text);
+        preview.scrollTop = preview.scrollHeight;
     }
 
     updateUI() {
         if (!this.isRunning) return;
 
         const elapsed = (performance.now() - this.startTime) / 1000;
-        const keysPerSecond = (this.keysProcessed / elapsed).toFixed(1);
+        const keysPerSec = (this.keysProcessed / elapsed || 0).toFixed(0);
 
-        document.getElementById('elapsedTime').textContent = `${elapsed.toFixed(1)}s`;
-        document.getElementById('keysTried').textContent = this.keysProcessed.toLocaleString();
-        document.getElementById('keysPerSec').textContent = keysPerSecond;
-        document.getElementById('bestScore').textContent = this.bestScore.toFixed(1);
+        document.getElementById('elapsed').textContent = `${elapsed.toFixed(1)}s`;
+        document.getElementById('keysPerSec').textContent = keysPerSec;
+        document.getElementById('topScore').textContent = this.bestScore.toFixed(1);
+        document.getElementById('currentKey').textContent = this.currentKey;
         document.getElementById('progressBar').style.width = 
-            `${Math.min(100, (elapsed / (this.getConfig().timeout / 1000)) * 100}%`;
+            `${Math.min(100, (this.keysProcessed / this.totalKeys) * 100)}%`;
 
         requestAnimationFrame(() => this.updateUI());
     }
 
     stop() {
+        if (!this.isRunning) return;
+
         this.isRunning = false;
-        this.workers.forEach(worker => worker.postMessage({ type: 'STOP' }));
-        clearTimeout(this.currentTimeout);
-        document.getElementById('startBtn').disabled = false;
+        clearTimeout(this.timeoutId);
+        this.workers.forEach(worker => {
+            worker.postMessage({type: 'TERMINATE'});
+            worker.terminate();
+        });
+        this.workers = [];
+        
+        this.showResultSummary();
     }
 
-    resetState() {
-        this.keysProcessed = 0;
-        this.bestScore = 0;
-        document.getElementById('resultsList').innerHTML = '';
-        document.getElementById('textComparison').innerHTML = '';
-        document.getElementById('progressBar').style.width = '0%';
+    showResultSummary() {
+        const summary = document.createElement('div');
+        summary.className = 'result-summary';
+        summary.innerHTML = `
+            <h3>🔚 Final Results</h3>
+            <p>Total keys processed: ${this.keysProcessed.toLocaleString()}</p>
+            <p>Best key found: <strong>${this.currentKey}</strong></p>
+            <p>Execution time: ${(performance.now() - this.startTime).toFixed(1)}ms</p>
+        `;
+        document.body.appendChild(summary);
+    }
+
+    showError(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = `❗ ${message}`;
+        document.body.prepend(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
     }
 }
 
-window.addEventListener('load', () => new K4Breaker());
+window.k4 = new K4Decryptor();
