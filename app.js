@@ -1,98 +1,155 @@
-const K4_CONFIG = {
-    BASE_KEYS: ['BERLIN','CLOCK','NORTHEAST','WEST','EAST','NORTH','SOUTH'],
-    DICTIONARY: ['THE','AND','THAT','WITH','FOR','WAS','HIS','ARE','FROM','HAVE'],
-    KRYPTOS_FREQ: {K:12.5,R:10.2,Y:8.1,P:7.9,T:7.5,O:6.8,S:6.5,A:5.9,B:5.3},
-    WORKER_FILE: 'worker.js'
-};
-
-class K4App {
+class K4Breaker {
     constructor() {
         this.workers = [];
-        this.results = [];
-        this.keysTested = 0;
-        this.totalKeys = 0;
-        
+        this.isRunning = false;
+        this.startTime = null;
+        this.keysProcessed = 0;
+        this.bestScore = 0;
+        this.currentTimeout = null;
+
+        this.initControls();
         this.initWorkers();
-        this.bindEvents();
+    }
+
+    initControls() {
+        document.getElementById('startBtn').addEventListener('click', () => this.start());
+        document.getElementById('stopBtn').addEventListener('click', () => this.stop());
+        document.getElementById('workersSlider').addEventListener('input', (e) => {
+            document.getElementById('workersValue').textContent = e.target.value;
+        });
     }
 
     initWorkers() {
-        const workerCount = Math.min(navigator.hardwareConcurrency || 4, 8);
-        document.getElementById('workers').value = workerCount;
-        
-        this.workers = Array.from({length: workerCount}, () => {
-            const worker = new Worker(K4_CONFIG.WORKER_FILE);
-            worker.onmessage = (e) => this.handleWorkerResponse(e);
+        const workerCount = parseInt(document.getElementById('workersSlider').value);
+        this.workers = Array.from({ length: workerCount }, () => {
+            const worker = new Worker('worker.js');
+            worker.onmessage = (e) => this.handleWorkerMessage(e);
             return worker;
         });
     }
 
-    bindEvents() {
-        document.getElementById('analyzeBtn').addEventListener('click', () => this.startAnalysis());
-    }
-
-    startAnalysis() {
-        const ciphertext = document.getElementById('ciphertext').value
-            .toUpperCase().replace(/[^A-Z]/g, '');
+    start() {
+        if (this.isRunning) return;
         
-        const maxKeyLength = parseInt(document.getElementById('maxKeyLength').value);
-        const keys = K4Analyzer.generateKeys(K4_CONFIG.BASE_KEYS, maxKeyLength);
+        this.resetState();
+        this.isRunning = true;
+        const config = this.getConfig();
         
-        this.totalKeys = keys.length;
-        this.keysTested = 0;
-        this.results = [];
-        document.getElementById('results').innerHTML = '';
-        
-        this.distributeWork(keys, ciphertext);
-    }
-
-    distributeWork(keys, ciphertext) {
-        const chunkSize = Math.ceil(keys.length / this.workers.length);
-        
-        this.workers.forEach((worker, i) => {
-            const start = i * chunkSize;
-            const end = start + chunkSize;
+        this.workers.forEach(worker => {
             worker.postMessage({
-                keys: keys.slice(start, end),
-                ciphertext,
-                freqData: K4_CONFIG.KRYPTOS_FREQ,
-                dictionary: K4_CONFIG.DICTIONARY
+                type: 'START',
+                config: {
+                    ciphertext: config.ciphertext,
+                    alphabet: config.alphabet,
+                    keyLength: this.calculateKeyLength(config.ciphertext),
+                    knownText: config.knownText,
+                    timeout: config.timeout
+                }
             });
         });
+
+        this.startTime = performance.now();
+        this.updateUI();
     }
 
-    handleWorkerResponse(e) {
-        this.keysTested += e.data.processed;
-        this.results.push(...e.data.results);
+    getConfig() {
+        return {
+            ciphertext: document.getElementById('ciphertext').value.toUpperCase().replace(/[^A-Z]/g, ''),
+            alphabet: this.validateAlphabet(document.getElementById('customAlphabet').value),
+            knownText: document.getElementById('knownText').value.toUpperCase(),
+            timeout: parseInt(document.getElementById('timeout').value) * 1000
+        };
+    }
+
+    validateAlphabet(alphabet) {
+        if (alphabet.length !== 26) throw new Error('Alphabet must be 26 characters');
+        return [...new Set(alphabet)].join('').toUpperCase();
+    }
+
+    calculateKeyLength(ciphertext) {
+        const factors = this.kasiskiTest(ciphertext);
+        return factors.length > 0 ? factors[0] : 8;
+    }
+
+    kasiskiTest(text, minSeqLength = 3) {
+        const sequences = new Map();
         
-        this.updateProgress();
-        this.displayResults();
+        // Find repeating sequences
+        for (let i = 0; i <= text.length - minSeqLength; i++) {
+            const seq = text.substr(i, minSeqLength);
+            if (!sequences.has(seq)) {
+                sequences.set(seq, []);
+            }
+            sequences.get(seq).push(i);
+        }
+
+        // Calculate distances
+        const distances = [];
+        for (const [seq, positions] of sequences.entries()) {
+            if (positions.length > 1) {
+                for (let i = 1; i < positions.length; i++) {
+                    distances.push(positions[i] - positions[i - 1]);
+                }
+            }
+        }
+
+        // Factor analysis
+        const factorCounts = new Map();
+        for (const distance of distances) {
+            const factors = this.primeFactors(distance);
+            factors.forEach(factor => {
+                factorCounts.set(factor, (factorCounts.get(factor) || 0) + 1);
+            });
+        }
+
+        return Array.from(factorCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([factor]) => factor);
     }
 
-    updateProgress() {
-        const percent = ((this.keysTested / this.totalKeys) * 100).toFixed(1);
-        document.getElementById('progress').textContent = `${percent}%`;
-        document.getElementById('keysTested').textContent = this.keysTested;
+    primeFactors(n) {
+        const factors = new Set();
+        while (n % 2 === 0) {
+            factors.add(2);
+            n /= 2;
+        }
+        for (let i = 3; i <= Math.sqrt(n); i += 2) {
+            while (n % i === 0) {
+                factors.add(i);
+                n /= i;
+            }
+        }
+        if (n > 2) factors.add(n);
+        return Array.from(factors);
     }
 
-    displayResults() {
-        const sorted = this.results
-            .sort((a, b) => b.score - a.score || a.entropy - b.entropy)
-            .slice(0, 50);
-        
-        const resultsHTML = sorted.map(res => `
-            <div class="result-item">
-                <span><strong>${res.key}</strong></span>
-                <span>${res.text.substring(0,40)}</span>
-                <span>${res.score.toFixed(1)}</span>
-                <span>${res.entropy.toFixed(2)}</span>
-            </div>
-        `).join('');
-        
-        document.getElementById('results').innerHTML = resultsHTML;
-        document.getElementById('topScore').textContent = sorted[0]?.score.toFixed(1) || '-';
-    }
-}
+    handleWorkerMessage(event) {
+        if (!this.isRunning) return;
 
-// Инициализация приложения
-new K4App();
+        const { type, data } = event.data;
+        switch (type) {
+            case 'PROGRESS':
+                this.keysProcessed += data.keysProcessed;
+                break;
+            
+            case 'RESULT':
+                this.processResult(data);
+                break;
+        }
+    }
+
+    processResult(result) {
+        if (result.score > this.bestScore) {
+            this.bestScore = result.score;
+            this.displayResult(result);
+            this.checkKnownTextMatch(result.text);
+        }
+    }
+
+    displayResult(result) {
+        const resultElement = document.createElement('div');
+        resultElement.className = 'result-item';
+        resultElement.innerHTML = `
+            <div class="key">${result.key}</div>
+            <div class="text">${result.text.substring(0, 60)}</div>
+            <div class="score">${result.score.toFixed(1)}</
