@@ -13,16 +13,16 @@
         
         <div class="control-panel">
             <div class="input-group">
-                <label for="ciphertext">Ciphertext:</label>
-                <textarea id="ciphertext" rows="3">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPKWGDKZXTJCDIGKUHUAUEKCAR</textarea>
+                <label for="ciphertext">Ciphertext (97 chars):</label>
+                <textarea id="ciphertext" rows="4" spellcheck="false">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
             </div>
 
             <div class="input-group">
                 <label for="knownPlaintext">Known Plaintext Fragment:</label>
-                <input type="text" id="knownPlaintext" placeholder="e.g. BERLIN">
+                <input type="text" id="knownPlaintext" placeholder="e.g. BERLIN" spellcheck="false">
             </div>
 
-            <div class="settings">
+            <div class="settings-row">
                 <div class="setting">
                     <label for="keyLength">Key Length:</label>
                     <input type="number" id="keyLength" min="4" max="12" value="9">
@@ -32,28 +32,36 @@
                     <input type="range" id="workers" min="1" max="8" value="4">
                     <span id="workersValue">4</span>
                 </div>
+            </div>
+
+            <div class="settings-row">
                 <div class="setting">
-                    <label for="alphabet">Custom Alphabet:</label>
-                    <input type="text" id="alphabet" value="ABCDEFGHIJKLMNOPQRSTUVWXYZ" maxlength="26">
+                    <label for="alphabet">Alphabet:</label>
+                    <input type="text" id="alphabet" value="ABCDEFGHIJKLMNOPQRSTUVWXYZ" maxlength="26" spellcheck="false">
+                </div>
+                <div class="setting">
+                    <label for="alphabetShift">Shift:</label>
+                    <input type="number" id="alphabetShift" min="0" max="25" value="0">
                 </div>
             </div>
 
             <div class="buttons">
                 <button id="startBtn">Start Attack</button>
                 <button id="stopBtn" disabled>Stop</button>
-                <button id="shuffleAlphabetBtn">Shuffle Alphabet</button>
+                <button id="shuffleBtn">Shuffle Alphabet</button>
+                <button id="resetBtn">Reset Alphabet</button>
             </div>
         </div>
 
         <div class="results">
-            <div class="stats">
+            <div class="stats-grid">
                 <div class="stat">
                     <span>Time Elapsed:</span>
                     <span id="elapsed">0s</span>
                 </div>
                 <div class="stat">
                     <span>Keys Tested:</span>
-                    <span id="keysTested">0</span> of <span id="totalKeys">0</span>
+                    <span id="keysTested">0</span> / <span id="totalKeys">0</span>
                 </div>
                 <div class="stat">
                     <span>Keys/sec:</span>
@@ -63,26 +71,24 @@
                     <span>Best Score:</span>
                     <span id="bestScore">0</span>
                 </div>
+                <div class="stat">
+                    <span>Completion:</span>
+                    <span id="completion">0%</span>
+                </div>
             </div>
 
             <div class="progress-container">
-                <div class="progress-label">
-                    <span>Progress:</span>
-                    <span id="progressPercent">0%</span>
-                </div>
-                <div class="progress">
-                    <div class="progress-bar" id="progressBar"></div>
-                </div>
+                <div class="progress-bar" id="progressBar"></div>
             </div>
 
-            <div class="output">
-                <div class="column">
+            <div class="results-grid">
+                <div class="results-column">
                     <h3>Top Candidates</h3>
-                    <div id="topResults"></div>
+                    <div id="topResults" class="results-box"></div>
                 </div>
-                <div class="column">
+                <div class="results-column">
                     <h3>Decrypted Text</h3>
-                    <div id="decryptedText" class="decrypted-text"></div>
+                    <div id="decryptedText" class="results-box decrypted-text"></div>
                 </div>
             </div>
         </div>
