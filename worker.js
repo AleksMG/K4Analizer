@@ -4,6 +4,10 @@ class K4Worker {
         this.alphabet = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
         this.knownText = '';
         this.keyGenerator = null;
+        this.expectedFreq = {
+            K: 12.5, R: 10.2, Y: 8.1, P: 7.9, 
+            T: 7.5, O: 6.8, S: 6.5, A: 5.9, B: 5.3
+        };
 
         self.onmessage = (e) => this.handleMessage(e.data);
     }
@@ -56,7 +60,6 @@ class K4Worker {
     *generateKeys(keyLength) {
         const baseChars = this.alphabet.split('');
         
-        // Генерация всех возможных комбинаций
         function* generate(index, current) {
             if (index === keyLength) {
                 yield current.join('');
@@ -91,19 +94,44 @@ class K4Worker {
 
     calculateScore(text) {
         let score = 0;
+        const textLength = text.length;
         
         // Частотный анализ
-        const charCount = text.length;
-        const freqScore = [...text].reduce((acc, c) => 
-            acc + (this.alphabet.includes(c) ? 1 : -2), 0);
-        score += freqScore / charCount * 100;
+        const freqMap = {};
+        for (const c of text) {
+            freqMap[c] = (freqMap[c] || 0) + 1;
+        }
+        
+        // Сравнение с ожидаемой частотой
+        for (const [char, expected] of Object.entries(this.expectedFreq)) {
+            const actual = ((freqMap[char] || 0) / textLength) * 100;
+            score += Math.max(0, 100 - Math.abs(actual - expected));
+        }
 
         // Совпадение с известным текстом
         if (this.knownText && text.includes(this.knownText)) {
             score += 200;
         }
 
-        // Шаблоны Kryptos
-        const patterns = [/BERLIN/, /CLOCK/, /NORTHEAST/];
+        // Проверка паттернов Kryptos
+        const patterns = [/BERLIN/, /CLOCK/, /NORTHEAST/, /WEST/, /EAST/];
         patterns.forEach(pattern => {
-            if (pattern.test(text
+            if (pattern.test(text)) {
+                score += 150;
+            }
+        });
+
+        // Штраф за редкие комбинации
+        const rarePatterns = [/Q{2,}/, /Z{2,}/, /X{2,}/];
+        rarePatterns.forEach(pattern => {
+            if (pattern.test(text)) {
+                score -= 100;
+            }
+        });
+
+        return Math.round(score);
+    }
+}
+
+// Инициализация воркера
+new K4Worker();
