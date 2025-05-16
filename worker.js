@@ -8,14 +8,14 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-// Common English words and patterns that might appear in K4
+// Common English words and patterns
 const COMMON_PATTERNS = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
     'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
     'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'DIRECTION', 'LATITUDE',
-    'LONGITUDE', 'COORDINATES'
+    'LONGITUDE', 'COORDINATES', 'GOVERNMENT', 'INTELLIGENCE', 'WASHINGTON'
 ];
 
 class K4Worker {
@@ -32,7 +32,7 @@ class K4Worker {
     handleMessage(message) {
         switch (message.type) {
             case 'start':
-                this.alphabet = message.alphabet || 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                this.alphabet = message.alphabet || this.alphabet;
                 this.startAttack(
                     message.ciphertext,
                     message.keyLength,
@@ -70,7 +70,6 @@ class K4Worker {
         
         // Distribute work among workers
         for (let i = 0; i < this.workerId; i++) {
-            // Increment the first position to distribute keys
             indices[0] = (indices[0] + 1) % alphabetLength;
             if (indices[0] !== 0) break;
         }
@@ -85,19 +84,17 @@ class K4Worker {
             while (pos >= 0) {
                 indices[pos] = (indices[pos] + this.totalWorkers) % alphabetLength;
                 if (indices[pos] >= this.totalWorkers) break;
-                indices[pos] = 0;
                 pos--;
             }
             
-            // If we've rolled over, we're done
             if (pos < 0) break;
         }
     }
 
     generateAndTestKeys() {
         const generator = this.keyGenerator();
-        const reportInterval = 500; // ms
-        const keysPerBatch = 2000;
+        const reportInterval = 1000; // ms
+        const keysPerBatch = 5000;
         
         const processBatch = () => {
             if (!this.running) return;
@@ -108,19 +105,19 @@ class K4Worker {
             while (!result.done && batchCount < keysPerBatch) {
                 const key = result.value;
                 const plaintext = this.decrypt(key);
-                const score = this.scorePlaintext(plaintext);
+                const scoreInfo = this.scorePlaintext(plaintext);
                 
-                // Only report results that are better than previous or above threshold
-                if (score > this.bestScore * 0.9 || score > 50) {
-                    if (score > this.bestScore) {
-                        this.bestScore = score;
+                if (scoreInfo.score > this.bestScore * 0.9 || scoreInfo.score > 50) {
+                    if (scoreInfo.score > this.bestScore) {
+                        this.bestScore = scoreInfo.score;
                     }
                     
                     self.postMessage({
                         type: 'result',
                         key,
                         plaintext,
-                        score
+                        score: scoreInfo.score,
+                        method: scoreInfo.method
                     });
                 }
                 
@@ -129,12 +126,12 @@ class K4Worker {
                 result = generator.next();
             }
             
-            // Report progress periodically
+            // Report progress
             const now = performance.now();
             if (now - this.lastReportTime >= reportInterval) {
                 self.postMessage({
                     type: 'progress',
-                    keysTested: batchCount
+                    keysTested: this.keysTested
                 });
                 this.lastReportTime = now;
             }
@@ -146,7 +143,7 @@ class K4Worker {
                 });
                 this.running = false;
             } else {
-                setTimeout(processBatch, 0); // Yield to event loop
+                setTimeout(processBatch, 0);
             }
         };
         
@@ -179,8 +176,22 @@ class K4Worker {
 
     scorePlaintext(plaintext) {
         let score = 0;
+        let method = 'basic';
         
-        // 1. Frequency analysis (only if using standard alphabet)
+        // 1. Known plaintext match (highest priority)
+        if (this.knownPlaintext && this.knownPlaintext.length > 0) {
+            const matchIndex = plaintext.indexOf(this.knownPlaintext);
+            if (matchIndex >= 0) {
+                score += 1000 * this.knownPlaintext.length;
+                method = 'known-text';
+                
+                // Extra bonus for position
+                if (matchIndex === 0) score += 500;
+                if (matchIndex < 10) score += 200;
+            }
+        }
+        
+        // 2. Frequency analysis (only if standard alphabet)
         if (this.alphabet === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
             const freq = {};
             const totalLetters = plaintext.replace(/[^A-Z]/g, '').length || 1;
@@ -191,41 +202,43 @@ class K4Worker {
                 }
             }
             
+            let freqScore = 0;
             for (const char in freq) {
                 const expected = ENGLISH_FREQ[char] || 0;
                 const actual = (freq[char] / totalLetters) * 100;
-                score += 100 - Math.abs(expected - actual);
+                freqScore += 100 - Math.abs(expected - actual);
             }
-        }
-        
-        // 2. Known plaintext bonus
-        if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
-            score += this.knownPlaintext.length * 100;
             
-            // Extra bonus if at the beginning
-            if (plaintext.startsWith(this.knownPlaintext)) {
-                score += 200;
+            score += freqScore;
+            if (freqScore > 500 && method === 'basic') {
+                method = 'frequency';
             }
         }
         
-        // 3. Common pattern bonus
+        // 3. Common pattern matches
+        let patternScore = 0;
         for (const pattern of COMMON_PATTERNS) {
             const regex = new RegExp(pattern, 'g');
             const matches = plaintext.match(regex);
             if (matches) {
-                score += pattern.length * 20 * matches.length;
+                patternScore += pattern.length * 25 * matches.length;
             }
         }
+        score += patternScore;
         
-        // 4. Word boundaries bonus (spaces would be helpful)
+        if (patternScore > 100 && method === 'basic') {
+            method = 'patterns';
+        }
+        
+        // 4. Word boundaries (spaces)
         const spaceCount = (plaintext.match(/ /g) || []).length;
-        score += spaceCount * 10;
+        score += spaceCount * 15;
         
         // 5. Penalty for non-alphabet characters
         const invalidChars = plaintext.replace(new RegExp(`[${this.alphabet} ]`, 'g'), '').length;
-        score -= invalidChars * 5;
+        score -= invalidChars * 10;
         
-        return score;
+        return { score: Math.max(0, score), method };
     }
 }
 
