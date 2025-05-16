@@ -1,124 +1,193 @@
-const KRYPTOS_ALPHABET = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
+// English letter frequencies (percentages)
 const ENGLISH_FREQ = {
-    E: 12.70, T: 9.10, A: 8.20, O: 7.50, I: 6.90,
-    N: 6.70, S: 6.30, H: 6.10, R: 6.00, D: 4.30,
-    L: 3.50, C: 2.80, U: 2.80, M: 2.40, W: 2.40,
-    F: 2.20, G: 2.00, Y: 2.00, P: 1.90, B: 1.50,
-    V: 1.00, K: 0.80, J: 0.20, X: 0.20, Q: 0.10,
-    Z: 0.10
+    'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
+    'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
+    'K': 0.772, 'L': 4.025, 'M': 2.406, 'N': 6.749, 'O': 7.507,
+    'P': 1.929, 'Q': 0.095, 'R': 5.987, 'S': 6.327, 'T': 9.056,
+    'U': 2.758, 'V': 0.978, 'W': 2.360, 'X': 0.150, 'Y': 1.974,
+    'Z': 0.074
 };
-const KNOWN_PATTERNS = ['BERLIN', 'CLOCK', 'NORTHEAST'];
 
-class K4Cracker {
-    constructor(config) {
-        this.ciphertext = config.ciphertext;
-        this.alphabet = config.alphabet;
-        this.keyLength = config.keyLength;
-        this.workerId = config.workerId;
-        this.keysGenerated = 0;
-        this.running = true;
+// Common English words and patterns that might appear in K4
+const COMMON_PATTERNS = [
+    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
+    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
+    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST'
+];
+
+class K4Worker {
+    constructor() {
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.running = false;
+        this.keysTested = 0;
+        this.lastReportTime = 0;
+        
+        self.onmessage = (e) => this.handleMessage(e.data);
     }
 
-    start() {
-        try {
-            const keyGenerator = this.generateKeys();
-            
-            for (const key of keyGenerator) {
-                if (!this.running) break;
+    handleMessage(message) {
+        switch (message.type) {
+            case 'start':
+                this.startAttack(
+                    message.ciphertext,
+                    message.keyLength,
+                    message.knownPlaintext,
+                    message.workerId,
+                    message.totalWorkers
+                );
+                break;
                 
-                this.keysGenerated++;
-                const decrypted = this.vigenereDecrypt(key);
-                const score = this.calculateScore(decrypted);
-                
-                if (score > 85) {
-                    self.postMessage({
-                        type: 'RESULT',
-                        key,
-                        text: decrypted,
-                        score,
-                        entropy: this.calculateEntropy(decrypted)
-                    });
-                }
-
-                if (this.keysGenerated % 100 === 0) {
-                    self.postMessage({
-                        type: 'PROGRESS',
-                        keysProcessed: this.keysGenerated
-                    });
-                }
-            }
-        } catch (error) {
-            self.postMessage({
-                type: 'ERROR',
-                message: `Worker ${this.workerId} crashed: ${error.message}`
-            });
+            case 'stop':
+                this.running = false;
+                break;
         }
     }
 
-    *generateKeys() {
-        const chars = this.alphabet.split('');
-        const key = new Array(this.keyLength).fill(chars[0]);
+    startAttack(ciphertext, keyLength, knownPlaintext, workerId, totalWorkers) {
+        this.running = true;
+        this.ciphertext = ciphertext;
+        this.keyLength = keyLength;
+        this.knownPlaintext = knownPlaintext;
+        this.workerId = workerId;
+        this.totalWorkers = totalWorkers;
+        
+        this.startTime = performance.now();
+        this.lastReportTime = this.startTime;
+        this.keysTested = 0;
+        
+        this.generateAndTestKeys();
+    }
+
+    *keyGenerator() {
+        const indices = new Array(this.keyLength).fill(0);
         
         while (this.running) {
-            yield key.join('');
+            // Convert indices to key
+            const key = indices.map(i => this.alphabet[i]).join('');
+            yield key;
             
-            let i = this.keyLength - 1;
-            while (i >= 0) {
-                const currentIndex = chars.indexOf(key[i]);
-                if (currentIndex < chars.length - 1) {
-                    key[i] = chars[currentIndex + 1];
-                    break;
-                } else {
-                    key[i] = chars[0];
-                    i--;
-                }
+            // Increment key (like an odometer)
+            let pos = this.keyLength - 1;
+            while (pos >= 0) {
+                indices[pos]++;
+                if (indices[pos] < 26) break;
+                indices[pos] = 0;
+                pos--;
             }
-            if (i < 0) break;
+            
+            // If we've rolled over, we're done
+            if (pos < 0) break;
         }
     }
 
-    vigenereDecrypt(key) {
-        return Array.from(this.ciphertext, (char, index) => {
-            const textIndex = this.alphabet.indexOf(char);
-            const keyIndex = this.alphabet.indexOf(key[index % key.length]);
-            return this.alphabet[(textIndex - keyIndex + 26) % 26];
-        }).join('');
+    generateAndTestKeys() {
+        const generator = this.keyGenerator();
+        const reportInterval = 1000; // ms
+        const keysPerBatch = 1000;
+        
+        const processBatch = () => {
+            if (!this.running) return;
+            
+            let batchCount = 0;
+            let result = generator.next();
+            
+            while (!result.done && batchCount < keysPerBatch) {
+                const key = result.value;
+                const plaintext = this.decrypt(key);
+                const score = this.scorePlaintext(plaintext);
+                
+                if (score > 50) { // Threshold for reporting
+                    self.postMessage({
+                        type: 'result',
+                        key,
+                        plaintext,
+                        score
+                    });
+                }
+                
+                this.keysTested++;
+                batchCount++;
+                result = generator.next();
+            }
+            
+            // Report progress periodically
+            const now = performance.now();
+            if (now - this.lastReportTime >= reportInterval) {
+                self.postMessage({
+                    type: 'progress',
+                    keysTested: this.keysTested
+                });
+                this.lastReportTime = now;
+            }
+            
+            if (result.done) {
+                self.postMessage({
+                    type: 'complete',
+                    keysTested: this.keysTested
+                });
+                this.running = false;
+            } else {
+                setTimeout(processBatch, 0); // Yield to event loop
+            }
+        };
+        
+        processBatch();
     }
 
-    calculateScore(text) {
+    decrypt(key) {
+        let plaintext = '';
+        const keyLength = key.length;
+        
+        for (let i = 0; i < this.ciphertext.length; i++) {
+            const cipherChar = this.ciphertext[i];
+            const keyChar = key[i % keyLength];
+            
+            const cipherIndex = this.alphabet.indexOf(cipherChar);
+            const keyIndex = this.alphabet.indexOf(keyChar);
+            
+            let plainIndex = (cipherIndex - keyIndex + 26) % 26;
+            plaintext += this.alphabet[plainIndex];
+        }
+        
+        return plaintext;
+    }
+
+    scorePlaintext(plaintext) {
         let score = 0;
         
-        // Частотный анализ
-        score += [...text].reduce((sum, char) => 
-            sum + (ENGLISH_FREQ[char] || 0), 0);
+        // 1. Frequency analysis
+        const freq = {};
+        for (const char of plaintext) {
+            freq[char] = (freq[char] || 0) + 1;
+        }
         
-        // Известные паттерны
-        score += KNOWN_PATTERNS.reduce((sum, pattern) => 
-            text.includes(pattern) ? sum + 150 : sum, 0);
+        for (const char in freq) {
+            const expected = ENGLISH_FREQ[char] || 0;
+            const actual = (freq[char] / plaintext.length) * 100;
+            score += 100 - Math.abs(expected - actual);
+        }
         
-        // Энтропия
-        score -= this.calculateEntropy(text) * 10;
+        // 2. Known plaintext bonus
+        if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
+            score += this.knownPlaintext.length * 50;
+        }
+        
+        // 3. Common pattern bonus
+        for (const pattern of COMMON_PATTERNS) {
+            if (plaintext.includes(pattern)) {
+                score += pattern.length * 20;
+            }
+        }
+        
+        // 4. Word boundaries bonus (spaces would be helpful)
+        if (plaintext.includes(' ')) {
+            score += 50;
+        }
         
         return score;
     }
-
-    calculateEntropy(text) {
-        const freq = {};
-        const len = text.length;
-        [...text].forEach(c => freq[c] = (freq[c] || 0) + 1);
-        return -Object.values(freq).reduce((sum, count) => {
-            const p = count / len;
-            return sum + p * Math.log2(p);
-        }, 0);
-    }
 }
 
-self.onmessage = function(e) {
-    if (e.data.type === 'INIT') {
-        const cracker = new K4Cracker(e.data);
-        cracker.start();
-    }
-    if (e.data.type === 'TERMINATE') {
-        cracker.running = false;
-    }
-};
+// Start the worker
+new K4Worker();
