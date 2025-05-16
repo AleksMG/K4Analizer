@@ -3,128 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kryptos K4 Full Spectrum Analyzer</title>
+    <title>Kryptos K4 Decryptor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="main-container">
-        <!-- Header Section -->
-        <header class="app-header">
-            <h1>🕵️ Kryptos K4 Professional Analysis Suite</h1>
-            <div class="runtime-controls">
-                <button id="mainStartBtn" class="control-btn">▶️ Start</button>
-                <button id="mainStopBtn" class="control-btn danger">⏹ Stop</button>
-                <button id="advancedMenuBtn" class="control-btn">⚙️ Advanced</button>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <div class="workspace">
-            <!-- Cipher Input Panel -->
-            <div class="input-panel">
-                <div class="cipher-input">
-                    <label>🔐 Ciphertext (K4 97 chars):</label>
-                    <textarea id="ciphertext" spellcheck="false">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
-                </div>
-                
-                <div class="known-text-input">
-                    <label>📖 Known Plaintext:</label>
-                    <input type="text" id="knownText" placeholder="Enter known text fragment">
-                </div>
+    <div class="container">
+        <h1>Kryptos K4 Decryptor</h1>
+        
+        <div class="control-panel">
+            <div class="input-group">
+                <label for="ciphertext">Ciphertext:</label>
+                <textarea id="ciphertext" rows="3">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
             </div>
 
-            <!-- Analysis Dashboard -->
-            <div class="dashboard">
-                <!-- Progress Visualization -->
-                <div class="progress-section">
-                    <div class="progress-header">
-                        <span>Progress</span>
-                        <span id="progressPercent">0%</span>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="mainProgressBar"></div>
-                    </div>
-                    <div class="progress-stats">
-                        <div class="stat-item">
-                            <span>⏱ Time:</span>
-                            <span id="elapsedTime">00:00</span>
-                        </div>
-                        <div class="stat-item">
-                            <span>🔑 Keys Tested:</span>
-                            <span id="keysTested">0</span>
-                        </div>
-                        <div class="stat-item">
-                            <span>🚀 Keys/Sec:</span>
-                            <span id="keysPerSec">0</span>
-                        </div>
-                    </div>
-                </div>
+            <div class="input-group">
+                <label for="knownPlaintext">Known Plaintext Fragment:</label>
+                <input type="text" id="knownPlaintext" placeholder="e.g. BERLIN">
+            </div>
 
-                <!-- Live Analysis -->
-                <div class="live-analysis">
-                    <div class="current-key">
-                        <span>Current Key:</span>
-                        <code id="currentKey">-</code>
-                    </div>
-                    <div class="best-match">
-                        <span>Best Match:</span>
-                        <code id="bestMatchScore">0</code>
-                    </div>
+            <div class="settings">
+                <div class="setting">
+                    <label for="keyLength">Key Length:</label>
+                    <input type="number" id="keyLength" min="4" max="12" value="9">
+                </div>
+                <div class="setting">
+                    <label for="workers">Workers:</label>
+                    <input type="range" id="workers" min="1" max="8" value="4">
+                    <span id="workersValue">4</span>
                 </div>
             </div>
 
-            <!-- Results Tabs -->
-            <div class="results-tabs">
-                <div class="tab active" data-tab="candidates">Top Candidates</div>
-                <div class="tab" data-tab="comparison">Text Comparison</div>
-                <div class="tab" data-tab="stats">Statistics</div>
-            </div>
-
-            <!-- Results Containers -->
-            <div class="results-container">
-                <!-- Top Candidates -->
-                <div class="results-content active" id="candidatesTab">
-                    <div class="result-list" id="topCandidates"></div>
-                </div>
-
-                <!-- Text Comparison -->
-                <div class="results-content" id="comparisonTab">
-                    <div class="comparison-wrapper">
-                        <div class="text-block">
-                            <h4>Decrypted Text</h4>
-                            <div id="decryptedPreview" class="preview-area"></div>
-                        </div>
-                        <div class="text-block">
-                            <h4>Known Text</h4>
-                            <div id="knownTextPreview" class="preview-area"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Statistics -->
-                <div class="results-content" id="statsTab">
-                    <div class="charts">
-                        <div class="chart-container">
-                            <canvas id="frequencyChart"></canvas>
-                        </div>
-                        <div class="chart-container">
-                            <canvas id="entropyChart"></canvas>
-                        </div>
-                    </div>
-                </div>
+            <div class="buttons">
+                <button id="startBtn">Start Attack</button>
+                <button id="stopBtn" disabled>Stop</button>
             </div>
         </div>
 
-        <!-- Advanced Settings Modal -->
-        <div class="modal" id="advancedSettings">
-            <div class="modal-content">
-                <h3>Advanced Settings</h3>
-                <!-- Содержимое настроек -->
+        <div class="results">
+            <div class="stats">
+                <div class="stat">
+                    <span>Time Elapsed:</span>
+                    <span id="elapsed">0s</span>
+                </div>
+                <div class="stat">
+                    <span>Keys Tested:</span>
+                    <span id="keysTested">0</span>
+                </div>
+                <div class="stat">
+                    <span>Keys/sec:</span>
+                    <span id="keysPerSec">0</span>
+                </div>
+            </div>
+
+            <div class="progress">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <div class="output">
+                <div class="column">
+                    <h3>Top Candidates</h3>
+                    <div id="topResults"></div>
+                </div>
+                <div class="column">
+                    <h3>Decrypted Text</h3>
+                    <div id="decryptedText" class="decrypted-text"></div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
