@@ -4,6 +4,7 @@ body {
     margin: 0;
     padding: 20px;
     color: #333;
+    line-height: 1.6;
 }
 
 .container {
@@ -11,12 +12,22 @@ body {
     margin: 0 auto;
     background-color: white;
     border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 25px;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.1);
 }
 
-h1, h3 {
+h1 {
     color: #2c3e50;
+    text-align: center;
+    margin-bottom: 25px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 15px;
+}
+
+h3 {
+    color: #2c3e50;
+    margin-top: 0;
+    margin-bottom: 15px;
 }
 
 .control-panel {
@@ -24,6 +35,7 @@ h1, h3 {
     padding: 20px;
     border-radius: 8px;
     margin-bottom: 20px;
+    border: 1px solid #e1e4e8;
 }
 
 .input-group {
@@ -34,6 +46,7 @@ h1, h3 {
     display: block;
     margin-bottom: 5px;
     font-weight: bold;
+    font-size: 14px;
 }
 
 .input-group textarea, 
@@ -43,26 +56,47 @@ h1, h3 {
     border: 1px solid #ddd;
     border-radius: 4px;
     font-family: 'Roboto Mono', monospace;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.input-group textarea {
+    min-height: 80px;
+    resize: vertical;
 }
 
 .settings {
     display: flex;
+    flex-wrap: wrap;
     gap: 20px;
     margin-bottom: 15px;
 }
 
 .setting {
     flex: 1;
+    min-width: 150px;
 }
 
-.setting input[type="number"] {
-    width: 60px;
-    padding: 8px;
+.setting label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.setting input[type="number"],
+.setting input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: 'Roboto Mono', monospace;
 }
 
 .buttons {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 button {
@@ -71,7 +105,9 @@ button {
     border-radius: 4px;
     cursor: pointer;
     font-weight: bold;
-    transition: background-color 0.2s;
+    transition: all 0.2s;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 14px;
 }
 
 #startBtn {
@@ -92,9 +128,20 @@ button {
     background-color: #c0392b;
 }
 
+#shuffleAlphabetBtn {
+    background-color: #3498db;
+    color: white;
+    margin-left: auto;
+}
+
+#shuffleAlphabetBtn:hover {
+    background-color: #2980b9;
+}
+
 .stats {
     display: flex;
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
     margin-bottom: 15px;
 }
 
@@ -103,14 +150,32 @@ button {
     padding: 10px 15px;
     border-radius: 4px;
     font-size: 14px;
+    border: 1px solid #e1e4e8;
+    min-width: 120px;
+}
+
+.stat span:first-child {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.progress-container {
+    margin-bottom: 20px;
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    font-size: 14px;
 }
 
 .progress {
     height: 20px;
     background-color: #ecf0f1;
     border-radius: 4px;
-    margin-bottom: 20px;
     overflow: hidden;
+    position: relative;
 }
 
 .progress-bar {
@@ -123,10 +188,12 @@ button {
 .output {
     display: flex;
     gap: 20px;
+    flex-wrap: wrap;
 }
 
 .column {
     flex: 1;
+    min-width: 300px;
 }
 
 #topResults {
@@ -136,6 +203,7 @@ button {
     min-height: 200px;
     max-height: 400px;
     overflow-y: auto;
+    border: 1px solid #e1e4e8;
 }
 
 .decrypted-text {
@@ -145,6 +213,9 @@ button {
     min-height: 200px;
     font-family: 'Roboto Mono', monospace;
     white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    border: 1px solid #e1e4e8;
 }
 
 .result-item {
@@ -153,14 +224,33 @@ button {
     background-color: white;
     border-radius: 4px;
     border-left: 3px solid #3498db;
+    border: 1px solid #e1e4e8;
 }
 
 .result-key {
     font-weight: bold;
     color: #2c3e50;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 15px;
 }
 
 .result-score {
     color: #7f8c8d;
     font-size: 12px;
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    .settings {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .output {
+        flex-direction: column;
+    }
+    
+    .stat {
+        min-width: calc(50% - 15px);
+    }
 }
