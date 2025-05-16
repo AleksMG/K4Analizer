@@ -12,6 +12,7 @@ class K4Decryptor {
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.alphabetShift = 0;
         this.workerStatus = {};
+        this.updateInterval = null;
 
         this.initElements();
         this.initEventListeners();
@@ -121,7 +122,7 @@ class K4Decryptor {
         this.updateButtonStates();
 
         this.initWorkers(ciphertext);
-        this.updateUI();
+        this.updateInterval = setInterval(() => this.updateUI(), 200);
     }
 
     validateCiphertext(text) {
@@ -158,7 +159,7 @@ class K4Decryptor {
             const worker = new Worker('worker.js');
             worker.onmessage = (e) => this.handleWorkerMessage(e.data, i);
             worker.postMessage({
-                type: 'start',
+                type: 'init',
                 ciphertext,
                 keyLength,
                 knownPlaintext,
@@ -181,7 +182,7 @@ class K4Decryptor {
                 break;
 
             case 'result':
-                if (data.score > this.bestScore * 0.9) { // Show good candidates
+                if (data.score > this.bestScore * 0.9 || data.score > 50) {
                     if (data.score > this.bestScore) {
                         this.bestScore = data.score;
                         this.bestResult = data;
@@ -209,12 +210,10 @@ class K4Decryptor {
     updateProgress() {
         this.keysTested = Object.values(this.workerStatus).reduce((sum, w) => sum + w.keysTested, 0);
         
-        // Update keys/sec calculation
         const now = performance.now();
         const elapsedSeconds = (now - this.startTime) / 1000;
         this.keysPerSecond = Math.round(this.keysTested / elapsedSeconds);
         
-        // Update progress percentage
         const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
         this.elements.progressBar.style.width = `${progressPercent}%`;
         this.elements.completion.textContent = `${progressPercent.toFixed(2)}%`;
@@ -230,37 +229,30 @@ class K4Decryptor {
         `;
         this.elements.topResults.prepend(resultElement);
 
-        // Keep only top 20 results
         while (this.elements.topResults.children.length > 20) {
             this.elements.topResults.removeChild(this.elements.topResults.lastChild);
         }
 
-        // Update decrypted text preview
         this.elements.decryptedText.textContent = result.plaintext;
     }
 
     updateUI() {
         if (!this.isRunning) return;
 
-        // Update elapsed time
         const elapsedSeconds = (performance.now() - this.startTime) / 1000;
         this.elements.elapsed.textContent = elapsedSeconds >= 60 
             ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s`
             : `${elapsedSeconds.toFixed(1)}s`;
 
-        // Update keys tested
         this.elements.keysTested.textContent = this.formatLargeNumber(this.keysTested);
-
-        // Update keys per second
         this.elements.keysPerSec.textContent = this.formatLargeNumber(this.keysPerSecond);
-
-        requestAnimationFrame(() => this.updateUI());
     }
 
     stop() {
         if (!this.isRunning) return;
 
         this.isRunning = false;
+        clearInterval(this.updateInterval);
         this.workers.forEach(worker => worker.terminate());
         this.workers = [];
         this.updateButtonStates();
@@ -274,7 +266,6 @@ class K4Decryptor {
     }
 }
 
-// Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
     window.decryptor = new K4Decryptor();
 });
