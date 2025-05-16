@@ -29,7 +29,7 @@ class K4Worker {
         this.workerId = 0;
         this.totalWorkers = 1;
         this.reportInterval = 500; // ms
-        this.keysPerBatch = 1000;
+        this.keysPerBatch = 10000;
         
         self.onmessage = (e) => this.handleMessage(e.data);
     }
