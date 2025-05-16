@@ -1,3 +1,4 @@
+// English letter frequencies (percentages)
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -7,6 +8,7 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
+// Common English words and patterns
 const COMMON_PATTERNS = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -18,11 +20,16 @@ const COMMON_PATTERNS = [
 
 class K4Worker {
     constructor() {
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.running = false;
         this.keysTested = 0;
         this.lastReportTime = 0;
         this.bestScore = 0;
-        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.keyGenerator = null;
+        this.workerId = 0;
+        this.totalWorkers = 1;
+        this.reportInterval = 500; // ms
+        this.keysPerBatch = 1000;
         
         self.onmessage = (e) => this.handleMessage(e.data);
     }
@@ -31,13 +38,23 @@ class K4Worker {
         switch (message.type) {
             case 'init':
                 this.alphabet = message.alphabet || this.alphabet;
-                this.startAttack(
-                    message.ciphertext,
-                    message.keyLength,
-                    message.knownPlaintext,
-                    message.workerId,
-                    message.totalWorkers
-                );
+                this.ciphertext = message.ciphertext;
+                this.keyLength = message.keyLength;
+                this.knownPlaintext = message.knownPlaintext;
+                this.workerId = message.workerId;
+                this.totalWorkers = message.totalWorkers;
+                this.keyGenerator = this.createKeyGenerator();
+                break;
+                
+            case 'start':
+                if (!this.keyGenerator) {
+                    self.postMessage({ type: 'error', message: 'Worker not initialized' });
+                    return;
+                }
+                this.running = true;
+                this.startTime = performance.now();
+                this.lastReportTime = this.startTime;
+                this.processKeys();
                 break;
                 
             case 'stop':
@@ -46,104 +63,81 @@ class K4Worker {
         }
     }
 
-    startAttack(ciphertext, keyLength, knownPlaintext, workerId, totalWorkers) {
-        this.running = true;
-        this.ciphertext = ciphertext;
-        this.keyLength = keyLength;
-        this.knownPlaintext = knownPlaintext;
-        this.workerId = workerId;
-        this.totalWorkers = totalWorkers;
-        this.bestScore = 0;
-        
-        this.startTime = performance.now();
-        this.lastReportTime = this.startTime;
-        this.keysTested = 0;
-        
-        this.processKeys();
-    }
-
-    *keyGenerator() {
+    *createKeyGenerator() {
         const alphabetLength = this.alphabet.length;
         const indices = new Array(this.keyLength).fill(0);
         
-        // Distribute work among workers
-        for (let i = 0; i < this.workerId; i++) {
-            indices[0] = (indices[0] + 1) % alphabetLength;
-            if (indices[0] !== 0) break;
+        // Initialize starting position for this worker
+        let carry = this.workerId;
+        for (let i = 0; i < this.keyLength && carry > 0; i++) {
+            indices[i] = carry % alphabetLength;
+            carry = Math.floor(carry / alphabetLength);
         }
         
-        while (this.running) {
+        while (true) {
+            // Convert indices to key
             const key = indices.map(i => this.alphabet[i]).join('');
             yield key;
             
-            // Increment key
-            let pos = this.keyLength - 1;
-            while (pos >= 0) {
-                indices[pos] = (indices[pos] + this.totalWorkers) % alphabetLength;
-                if (indices[pos] >= this.totalWorkers) break;
-                pos--;
+            // Increment key with worker distribution
+            let pos = 0;
+            let increment = this.totalWorkers;
+            while (increment > 0 && pos < this.keyLength) {
+                const sum = indices[pos] + increment;
+                indices[pos] = sum % alphabetLength;
+                increment = Math.floor(sum / alphabetLength);
+                pos++;
             }
             
-            if (pos < 0) break;
+            if (increment > 0) break; // We've exhausted all keys
         }
     }
 
     processKeys() {
-        const generator = this.keyGenerator();
-        const reportInterval = 1000;
-        const keysPerBatch = 10000;
+        if (!this.running) return;
         
-        const processBatch = () => {
-            if (!this.running) return;
-            
-            let batchCount = 0;
-            let result = generator.next();
-            
-            while (!result.done && batchCount < keysPerBatch) {
-                const key = result.value;
-                const plaintext = this.decrypt(key);
-                const scoreInfo = this.scorePlaintext(plaintext);
-                
-                if (scoreInfo.score > this.bestScore * 0.9 || scoreInfo.score > 50) {
-                    if (scoreInfo.score > this.bestScore) {
-                        this.bestScore = scoreInfo.score;
-                    }
-                    
-                    self.postMessage({
-                        type: 'result',
-                        key,
-                        plaintext,
-                        score: scoreInfo.score,
-                        method: scoreInfo.method
-                    });
-                }
-                
-                this.keysTested++;
-                batchCount++;
-                result = generator.next();
+        let batchCount = 0;
+        let now = performance.now();
+        
+        while (batchCount < this.keysPerBatch) {
+            const { value: key, done } = this.keyGenerator.next();
+            if (done) {
+                self.postMessage({ type: 'complete', keysTested: this.keysTested });
+                this.running = false;
+                return;
             }
             
-            const now = performance.now();
-            if (now - this.lastReportTime >= reportInterval) {
+            const plaintext = this.decrypt(key);
+            const scoreInfo = this.scorePlaintext(plaintext);
+            
+            // Only report meaningful results
+            if (scoreInfo.score > 50 || 
+                (this.knownPlaintext && scoreInfo.method === 'known-text')) {
+                self.postMessage({
+                    type: 'result',
+                    key,
+                    plaintext,
+                    score: scoreInfo.score,
+                    method: scoreInfo.method
+                });
+            }
+            
+            this.keysTested++;
+            batchCount++;
+            
+            // Throttle progress updates
+            now = performance.now();
+            if (now - this.lastReportTime >= this.reportInterval) {
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested
                 });
                 this.lastReportTime = now;
             }
-            
-            if (result.done) {
-                self.postMessage({
-                    type: 'complete',
-                    keysTested: this.keysTested
-                });
-                this.running = false;
-            } else {
-                setTimeout(processBatch, 0);
-            }
-        };
+        }
         
-        processBatch();
+        // Use setTimeout(0) to yield to event loop and prevent UI freeze
+        setTimeout(() => this.processKeys(), 0);
     }
 
     decrypt(key) {
@@ -174,19 +168,17 @@ class K4Worker {
         let score = 0;
         let method = 'basic';
         
-        // 1. Known plaintext match
+        // 1. Known plaintext match (highest priority)
         if (this.knownPlaintext && this.knownPlaintext.length > 0) {
-            const matchIndex = plaintext.indexOf(this.knownPlaintext);
-            if (matchIndex >= 0) {
-                score += 1000 * this.knownPlaintext.length;
+            const regex = new RegExp(this.knownPlaintext, 'g');
+            const matches = plaintext.match(regex);
+            if (matches) {
+                score += 1000 * this.knownPlaintext.length * matches.length;
                 method = 'known-text';
-                
-                if (matchIndex === 0) score += 500;
-                if (matchIndex < 10) score += 200;
             }
         }
         
-        // 2. Frequency analysis
+        // 2. Frequency analysis (only if standard alphabet)
         if (this.alphabet === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
             const freq = {};
             const totalLetters = plaintext.replace(/[^A-Z]/g, '').length || 1;
@@ -225,11 +217,11 @@ class K4Worker {
             method = 'patterns';
         }
         
-        // 4. Word boundaries
+        // 4. Word boundaries (spaces)
         const spaceCount = (plaintext.match(/ /g) || []).length;
         score += spaceCount * 15;
         
-        // 5. Penalty for invalid chars
+        // 5. Penalty for non-alphabet characters
         const invalidChars = plaintext.replace(new RegExp(`[${this.alphabet} ]`, 'g'), '').length;
         score -= invalidChars * 10;
         
@@ -237,4 +229,5 @@ class K4Worker {
     }
 }
 
+// Start the worker
 new K4Worker();
