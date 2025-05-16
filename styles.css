@@ -1,111 +1,140 @@
+/* Base Styles */
 :root {
-    --primary: #2c3e50;
-    --secondary: #3498db;
-    --background: #f5f6fa;
-    --text: #2c3e50;
-    --success: #27ae60;
+    --primary-color: #2c3e50;
+    --secondary-color: #3498db;
+    --success-color: #27ae60;
+    --danger-color: #e74c3c;
+    --background: #f8f9fa;
+    --text-dark: #2c3e50;
+    --text-light: #ecf0f1;
 }
 
 body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Roboto', sans-serif;
     background: var(--background);
-    color: var(--text);
-    line-height: 1.6;
+    color: var(--text-dark);
     margin: 0;
     padding: 20px;
 }
 
-.container {
+.main-container {
     max-width: 1200px;
     margin: 0 auto;
-}
-
-.config-panel {
     background: white;
-    padding: 20px;
     border-radius: 12px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    margin-bottom: 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    padding: 2rem;
 }
 
-.input-group textarea {
+/* Header Styles */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #eee;
+}
+
+.cta-btn {
+    padding: 0.8rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.cta-btn:hover {
+    transform: translateY(-2px);
+    opacity: 0.9;
+}
+
+.danger {
+    background: var(--danger-color);
+    color: white;
+}
+
+/* Input Styles */
+.cipher-input {
     width: 100%;
-    padding: 12px;
+    padding: 1rem;
     border: 2px solid #ddd;
     border-radius: 8px;
-    font-family: monospace;
+    font-family: 'Courier New', monospace;
     resize: vertical;
+    min-height: 120px;
 }
 
-.settings {
+.advanced-config {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin: 15px 0;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin: 2rem 0;
 }
 
-button {
-    background: var(--secondary);
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-    transition: transform 0.2s, background 0.3s;
+.config-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
-button:hover {
-    background: #2980b9;
-    transform: translateY(-1px);
-}
-
-.results {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-}
-
-.stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 15px;
-    margin-bottom: 20px;
-    font-weight: 500;
-}
-
-.output {
+/* Progress Visualization */
+.live-progress {
+    margin: 2rem 0;
     background: #f8f9fa;
+    padding: 1.5rem;
     border-radius: 8px;
-    padding: 15px;
 }
 
-.result-header {
-    display: grid;
-    grid-template-columns: 1fr 3fr 0.7fr 0.7fr;
-    gap: 15px;
-    font-weight: 600;
-    margin-bottom: 10px;
-    padding: 0 10px;
+.progress-bar-container {
+    height: 20px;
+    background: #eee;
+    border-radius: 10px;
+    overflow: hidden;
 }
 
-#results {
-    max-height: 60vh;
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--secondary-color), var(--success-color));
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+/* Results Styles */
+.results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    max-height: 400px;
     overflow-y: auto;
 }
 
 .result-item {
-    display: grid;
-    grid-template-columns: 1fr 3fr 0.7fr 0.7fr;
-    gap: 15px;
-    padding: 10px;
-    margin: 5px 0;
+    padding: 1rem;
     background: white;
-    border-radius: 6px;
-    transition: background 0.2s;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: 1fr 3fr 1fr;
+    gap: 1rem;
+    transition: box-shadow 0.2s;
 }
 
 .result-item:hover {
-    background: #f1f2f6;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.comparison-box {
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+}
+
+.highlight-match {
+    background: #f1c40f;
+    padding: 2px 4px;
+    border-radius: 4px;
 }
