@@ -22,11 +22,6 @@
                 <input type="text" id="knownPlaintext" placeholder="e.g. BERLIN">
             </div>
 
-            <div class="input-group">
-                <label for="customAlphabet">Custom Alphabet (A-Z):</label>
-                <input type="text" id="customAlphabet" value="ABCDEFGHIJKLMNOPQRSTUVWXYZ" maxlength="26">
-            </div>
-
             <div class="settings">
                 <div class="setting">
                     <label for="keyLength">Key Length:</label>
@@ -37,12 +32,16 @@
                     <input type="range" id="workers" min="1" max="8" value="4">
                     <span id="workersValue">4</span>
                 </div>
+                <div class="setting">
+                    <label for="alphabet">Custom Alphabet:</label>
+                    <input type="text" id="alphabet" value="ABCDEFGHIJKLMNOPQRSTUVWXYZ" maxlength="26">
+                </div>
             </div>
 
             <div class="buttons">
                 <button id="startBtn">Start Attack</button>
                 <button id="stopBtn" disabled>Stop</button>
-                <button id="resetBtn">Reset</button>
+                <button id="shuffleAlphabetBtn">Shuffle Alphabet</button>
             </div>
         </div>
 
@@ -61,13 +60,19 @@
                     <span id="keysPerSec">0</span>
                 </div>
                 <div class="stat">
-                    <span>Progress:</span>
-                    <span id="progressPercent">0%</span>
+                    <span>Best Score:</span>
+                    <span id="bestScore">0</span>
                 </div>
             </div>
 
-            <div class="progress">
-                <div class="progress-bar" id="progressBar"></div>
+            <div class="progress-container">
+                <div class="progress-label">
+                    <span>Progress:</span>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div class="progress">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
             </div>
 
             <div class="output">
