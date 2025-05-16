@@ -13,7 +13,9 @@ const COMMON_PATTERNS = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
-    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST'
+    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
+    'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'DIRECTION', 'LATITUDE',
+    'LONGITUDE', 'COORDINATES'
 ];
 
 class K4Worker {
@@ -22,6 +24,7 @@ class K4Worker {
         this.running = false;
         this.keysTested = 0;
         this.lastReportTime = 0;
+        this.bestScore = 0;
         
         self.onmessage = (e) => this.handleMessage(e.data);
     }
@@ -29,6 +32,7 @@ class K4Worker {
     handleMessage(message) {
         switch (message.type) {
             case 'start':
+                this.alphabet = message.alphabet || 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
                 this.startAttack(
                     message.ciphertext,
                     message.keyLength,
@@ -51,6 +55,7 @@ class K4Worker {
         this.knownPlaintext = knownPlaintext;
         this.workerId = workerId;
         this.totalWorkers = totalWorkers;
+        this.bestScore = 0;
         
         this.startTime = performance.now();
         this.lastReportTime = this.startTime;
@@ -60,7 +65,15 @@ class K4Worker {
     }
 
     *keyGenerator() {
+        const alphabetLength = this.alphabet.length;
         const indices = new Array(this.keyLength).fill(0);
+        
+        // Distribute work among workers
+        for (let i = 0; i < this.workerId; i++) {
+            // Increment the first position to distribute keys
+            indices[0] = (indices[0] + 1) % alphabetLength;
+            if (indices[0] !== 0) break;
+        }
         
         while (this.running) {
             // Convert indices to key
@@ -70,8 +83,8 @@ class K4Worker {
             // Increment key (like an odometer)
             let pos = this.keyLength - 1;
             while (pos >= 0) {
-                indices[pos]++;
-                if (indices[pos] < 26) break;
+                indices[pos] = (indices[pos] + this.totalWorkers) % alphabetLength;
+                if (indices[pos] >= this.totalWorkers) break;
                 indices[pos] = 0;
                 pos--;
             }
@@ -83,8 +96,8 @@ class K4Worker {
 
     generateAndTestKeys() {
         const generator = this.keyGenerator();
-        const reportInterval = 1000; // ms
-        const keysPerBatch = 1000;
+        const reportInterval = 500; // ms
+        const keysPerBatch = 2000;
         
         const processBatch = () => {
             if (!this.running) return;
@@ -97,7 +110,12 @@ class K4Worker {
                 const plaintext = this.decrypt(key);
                 const score = this.scorePlaintext(plaintext);
                 
-                if (score > 50) { // Threshold for reporting
+                // Only report results that are better than previous or above threshold
+                if (score > this.bestScore * 0.9 || score > 50) {
+                    if (score > this.bestScore) {
+                        this.bestScore = score;
+                    }
+                    
                     self.postMessage({
                         type: 'result',
                         key,
@@ -116,7 +134,7 @@ class K4Worker {
             if (now - this.lastReportTime >= reportInterval) {
                 self.postMessage({
                     type: 'progress',
-                    keysTested: this.keysTested
+                    keysTested: batchCount
                 });
                 this.lastReportTime = now;
             }
@@ -138,6 +156,7 @@ class K4Worker {
     decrypt(key) {
         let plaintext = '';
         const keyLength = key.length;
+        const alphabetLength = this.alphabet.length;
         
         for (let i = 0; i < this.ciphertext.length; i++) {
             const cipherChar = this.ciphertext[i];
@@ -146,7 +165,12 @@ class K4Worker {
             const cipherIndex = this.alphabet.indexOf(cipherChar);
             const keyIndex = this.alphabet.indexOf(keyChar);
             
-            let plainIndex = (cipherIndex - keyIndex + 26) % 26;
+            if (cipherIndex === -1 || keyIndex === -1) {
+                plaintext += '?';
+                continue;
+            }
+            
+            let plainIndex = (cipherIndex - keyIndex + alphabetLength) % alphabetLength;
             plaintext += this.alphabet[plainIndex];
         }
         
@@ -156,34 +180,50 @@ class K4Worker {
     scorePlaintext(plaintext) {
         let score = 0;
         
-        // 1. Frequency analysis
-        const freq = {};
-        for (const char of plaintext) {
-            freq[char] = (freq[char] || 0) + 1;
-        }
-        
-        for (const char in freq) {
-            const expected = ENGLISH_FREQ[char] || 0;
-            const actual = (freq[char] / plaintext.length) * 100;
-            score += 100 - Math.abs(expected - actual);
+        // 1. Frequency analysis (only if using standard alphabet)
+        if (this.alphabet === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+            const freq = {};
+            const totalLetters = plaintext.replace(/[^A-Z]/g, '').length || 1;
+            
+            for (const char of plaintext) {
+                if (this.alphabet.includes(char)) {
+                    freq[char] = (freq[char] || 0) + 1;
+                }
+            }
+            
+            for (const char in freq) {
+                const expected = ENGLISH_FREQ[char] || 0;
+                const actual = (freq[char] / totalLetters) * 100;
+                score += 100 - Math.abs(expected - actual);
+            }
         }
         
         // 2. Known plaintext bonus
         if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
-            score += this.knownPlaintext.length * 50;
+            score += this.knownPlaintext.length * 100;
+            
+            // Extra bonus if at the beginning
+            if (plaintext.startsWith(this.knownPlaintext)) {
+                score += 200;
+            }
         }
         
         // 3. Common pattern bonus
         for (const pattern of COMMON_PATTERNS) {
-            if (plaintext.includes(pattern)) {
-                score += pattern.length * 20;
+            const regex = new RegExp(pattern, 'g');
+            const matches = plaintext.match(regex);
+            if (matches) {
+                score += pattern.length * 20 * matches.length;
             }
         }
         
         // 4. Word boundaries bonus (spaces would be helpful)
-        if (plaintext.includes(' ')) {
-            score += 50;
-        }
+        const spaceCount = (plaintext.match(/ /g) || []).length;
+        score += spaceCount * 10;
+        
+        // 5. Penalty for non-alphabet characters
+        const invalidChars = plaintext.replace(new RegExp(`[${this.alphabet} ]`, 'g'), '').length;
+        score -= invalidChars * 5;
         
         return score;
     }
