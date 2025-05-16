@@ -16,10 +16,12 @@ class K4Breaker {
         document.getElementById('stopBtn').addEventListener('click', () => this.stop());
         document.getElementById('workersSlider').addEventListener('input', (e) => {
             document.getElementById('workersValue').textContent = e.target.value;
+            this.initWorkers();
         });
     }
 
     initWorkers() {
+        this.workers.forEach(worker => worker.terminate());
         const workerCount = parseInt(document.getElementById('workersSlider').value);
         this.workers = Array.from({ length: workerCount }, () => {
             const worker = new Worker('worker.js');
@@ -50,6 +52,7 @@ class K4Breaker {
 
         this.startTime = performance.now();
         this.updateUI();
+        this.currentTimeout = setTimeout(() => this.stop(), config.timeout);
     }
 
     getConfig() {
@@ -62,7 +65,10 @@ class K4Breaker {
     }
 
     validateAlphabet(alphabet) {
-        if (alphabet.length !== 26) throw new Error('Alphabet must be 26 characters');
+        if (alphabet.length !== 26) {
+            alert('Alphabet must be exactly 26 characters!');
+            throw new Error('Invalid alphabet length');
+        }
         return [...new Set(alphabet)].join('').toUpperCase();
     }
 
@@ -74,16 +80,11 @@ class K4Breaker {
     kasiskiTest(text, minSeqLength = 3) {
         const sequences = new Map();
         
-        // Find repeating sequences
         for (let i = 0; i <= text.length - minSeqLength; i++) {
             const seq = text.substr(i, minSeqLength);
-            if (!sequences.has(seq)) {
-                sequences.set(seq, []);
-            }
-            sequences.get(seq).push(i);
+            sequences.set(seq, [...(sequences.get(seq) || [], i]);
         }
 
-        // Calculate distances
         const distances = [];
         for (const [seq, positions] of sequences.entries()) {
             if (positions.length > 1) {
@@ -93,7 +94,6 @@ class K4Breaker {
             }
         }
 
-        // Factor analysis
         const factorCounts = new Map();
         for (const distance of distances) {
             const factors = this.primeFactors(distance);
@@ -152,4 +152,56 @@ class K4Breaker {
         resultElement.innerHTML = `
             <div class="key">${result.key}</div>
             <div class="text">${result.text.substring(0, 60)}</div>
-            <div class="score">${result.score.toFixed(1)}</
+            <div class="score">${result.score.toFixed(1)}</div>
+        `;
+        document.getElementById('resultsList').prepend(resultElement);
+    }
+
+    checkKnownTextMatch(text) {
+        const knownText = document.getElementById('knownText').value.toUpperCase();
+        if (!knownText || !text.includes(knownText)) return;
+
+        const highlighted = text.replace(
+            new RegExp(knownText, 'gi'),
+            '<span class="highlight-match">$&</span>'
+        );
+
+        document.getElementById('textComparison').innerHTML = `
+            <div class="match-alert">🎉 Match Found!</div>
+            <div class="comparison-text">${highlighted}</div>
+        `;
+    }
+
+    updateUI() {
+        if (!this.isRunning) return;
+
+        const elapsed = (performance.now() - this.startTime) / 1000;
+        const keysPerSecond = (this.keysProcessed / elapsed).toFixed(1);
+
+        document.getElementById('elapsedTime').textContent = `${elapsed.toFixed(1)}s`;
+        document.getElementById('keysTried').textContent = this.keysProcessed.toLocaleString();
+        document.getElementById('keysPerSec').textContent = keysPerSecond;
+        document.getElementById('bestScore').textContent = this.bestScore.toFixed(1);
+        document.getElementById('progressBar').style.width = 
+            `${Math.min(100, (elapsed / (this.getConfig().timeout / 1000)) * 100}%`;
+
+        requestAnimationFrame(() => this.updateUI());
+    }
+
+    stop() {
+        this.isRunning = false;
+        this.workers.forEach(worker => worker.postMessage({ type: 'STOP' }));
+        clearTimeout(this.currentTimeout);
+        document.getElementById('startBtn').disabled = false;
+    }
+
+    resetState() {
+        this.keysProcessed = 0;
+        this.bestScore = 0;
+        document.getElementById('resultsList').innerHTML = '';
+        document.getElementById('textComparison').innerHTML = '';
+        document.getElementById('progressBar').style.width = '0%';
+    }
+}
+
+window.addEventListener('load', () => new K4Breaker());
