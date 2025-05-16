@@ -2,61 +2,90 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>K4 Ultimate Breaker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K4 Full Spectrum Breaker</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🔓 Kryptos K4 Interactive Breaker</h1>
-        
-        <!-- Основные элементы управления -->
-        <div class="control-panel">
+    <div class="main-container">
+        <!-- Заголовок и управление -->
+        <header class="app-header">
+            <h1>🛠 Kryptos K4 Full Breaker</h1>
+            <div class="runtime-controls">
+                <button id="startBtn" class="cta-btn">▶️ Start Attack</button>
+                <button id="stopBtn" class="cta-btn danger">⏹ Stop</button>
+            </div>
+        </header>
+
+        <!-- Основные параметры -->
+        <section class="config-section">
             <div class="input-group">
-                <label>Шифротекст (K4):</label>
-                <textarea id="ciphertext" rows="4">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
-            </div>
-
-            <div class="settings">
-                <div class="setting">
-                    <label>Алфавит:</label>
-                    <input type="text" id="alphabet" value="KRYPTOSABCDEFGHIJLMNQUVWXZ">
-                </div>
-                
-                <div class="setting">
-                    <label>Известный текст:</label>
-                    <input type="text" id="knownText" placeholder="Часть расшифрованного текста">
-                </div>
-            </div>
-
-            <button id="startBtn" onclick="startAnalysis()">🎯 Начать взлом</button>
-        </div>
-
-        <!-- Визуализация процесса -->
-        <div class="analysis-panel">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
+                <label>🔒 Ciphertext:</label>
+                <textarea id="ciphertext" class="cipher-input">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
             </div>
             
-            <div class="status">
-                <span>⏱ Время: <span id="timer">0s</span></span>
-                <span>🔑 Ключи: <span id="keysCounter">0</span></span>
-                <span>⚡ К/сек: <span id="keysPerSec">0</span></span>
-            </div>
-        </div>
+            <div class="advanced-config">
+                <div class="config-column">
+                    <label>🔑 Custom Alphabet:</label>
+                    <input type="text" id="customAlphabet" value="KRYPTOSABCDEFGHIJLMNQUVWXZ" maxlength="26">
+                    
+                    <label>🎯 Known Plaintext:</label>
+                    <input type="text" id="knownText" placeholder="Partial known text">
+                </div>
+                
+                <div class="config-column">
+                    <label>⚙️ Workers (Cores):</label>
+                    <input type="range" id="workersSlider" min="1" max="8" value="4">
+                    <span id="workersValue">4</span>
 
-        <!-- Результаты и сравнение -->
-        <div class="results">
-            <div class="result-grid">
-                <div class="column">
-                    <h3>🔍 Лучшие варианты</h3>
-                    <div id="topResults"></div>
-                </div>
-                <div class="column">
-                    <h3>🆚 Сравнение с известным текстом</h3>
-                    <div id="comparison"></div>
+                    <label>⏱ Timeout (sec):</label>
+                    <input type="number" id="timeout" value="20" min="5" max="60">
                 </div>
             </div>
-        </div>
+        </section>
+
+        <!-- Визуализация процесса -->
+        <section class="visualization">
+            <div class="performance-metrics">
+                <div class="metric">
+                    <span class="label">⏳ Elapsed:</span>
+                    <span id="elapsedTime" class="value">0s</span>
+                </div>
+                <div class="metric">
+                    <span class="label">🔑 Keys Tried:</span>
+                    <span id="keysTried" class="value">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">🚀 Keys/Sec:</span>
+                    <span id="keysPerSec" class="value">0</span>
+                </div>
+            </div>
+
+            <div class="live-progress">
+                <div class="progress-labels">
+                    <span>Current Key: <span id="currentKey">-</span></span>
+                    <span>Best Score: <span id="bestScore">0</span></span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Результаты и анализ -->
+        <section class="results-section">
+            <div class="results-container">
+                <div class="top-results">
+                    <h3>🏆 Top Candidates</h3>
+                    <div id="resultsList" class="results-list"></div>
+                </div>
+                
+                <div class="comparison-view">
+                    <h3>🔍 Text Comparison</h3>
+                    <div id="textComparison" class="comparison-box"></div>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script src="app.js"></script>
