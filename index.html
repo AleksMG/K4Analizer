@@ -2,54 +2,63 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>K4 Professional Analyzer</title>
+    <title>K4 Ultimate Breaker</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>🔐 Kryptos K4 Professional Analyzer</h1>
+        <h1>🔓 Kryptos K4 Interactive Breaker</h1>
         
-        <div class="config-panel">
+        <!-- Основные элементы управления -->
+        <div class="control-panel">
             <div class="input-group">
-                <label>Ciphertext:</label>
-                <textarea id="ciphertext" rows="4">OBKR...FPK</textarea>
+                <label>Шифротекст (K4):</label>
+                <textarea id="ciphertext" rows="4">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
             </div>
-            
+
             <div class="settings">
-                <div>
-                    <label>Max Key Length:</label>
-                    <input type="number" id="maxKeyLength" value="12" min="1" max="20">
+                <div class="setting">
+                    <label>Алфавит:</label>
+                    <input type="text" id="alphabet" value="KRYPTOSABCDEFGHIJLMNQUVWXZ">
                 </div>
-                <div>
-                    <label>Workers:</label>
-                    <input type="number" id="workers" value="4" min="1" max="8">
+                
+                <div class="setting">
+                    <label>Известный текст:</label>
+                    <input type="text" id="knownText" placeholder="Часть расшифрованного текста">
                 </div>
             </div>
-            
-            <button id="analyzeBtn" onclick="startAnalysis()">🚀 Start Deep Analysis</button>
+
+            <button id="startBtn" onclick="startAnalysis()">🎯 Начать взлом</button>
         </div>
 
-        <div class="results">
-            <div class="stats">
-                <div>⏳ Progress: <span id="progress">0%</span></div>
-                <div>🔑 Keys Tested: <span id="keysTested">0</span></div>
-                <div>⭐ Top Score: <span id="topScore">-</span></div>
+        <!-- Визуализация процесса -->
+        <div class="analysis-panel">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
             </div>
             
-            <div class="output" id="output">
-                <div class="result-header">
-                    <span>Key</span>
-                    <span>Decrypted Preview</span>
-                    <span>Score</span>
-                    <span>Entropy</span>
+            <div class="status">
+                <span>⏱ Время: <span id="timer">0s</span></span>
+                <span>🔑 Ключи: <span id="keysCounter">0</span></span>
+                <span>⚡ К/сек: <span id="keysPerSec">0</span></span>
+            </div>
+        </div>
+
+        <!-- Результаты и сравнение -->
+        <div class="results">
+            <div class="result-grid">
+                <div class="column">
+                    <h3>🔍 Лучшие варианты</h3>
+                    <div id="topResults"></div>
                 </div>
-                <div id="results"></div>
+                <div class="column">
+                    <h3>🆚 Сравнение с известным текстом</h3>
+                    <div id="comparison"></div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script src="kryptos-lib.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
