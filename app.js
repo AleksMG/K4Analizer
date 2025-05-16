@@ -29,8 +29,8 @@ class K4Decryptor {
         this.scoreCache = new Map();          // Кеш результатов оценки
         this.batchResults = [];               // Буфер для пакетной обработки
         this.lastScoreUpdate = 0;             // Время последнего обновления
-        this.scoreUpdateInterval = 250;       // Интервал обновления (мс)
-        this.batchSize = 5000;                // Размер пачки
+        this.scoreUpdateInterval = 500;       // Интервал обновления (мс)
+        this.batchSize = 10000;                // Размер пачки
 
         this.initElements();
         this.initEventListeners();
