@@ -2,86 +2,73 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>K4 Full Spectrum Breaker</title>
+    <title>Kryptos K4 Professional Analyzer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="main-container">
-        <header class="app-header">
-            <h1>🛠 Kryptos K4 Full Breaker</h1>
-            <div class="runtime-controls">
-                <button id="startBtn" class="cta-btn">▶️ Start Attack</button>
-                <button id="stopBtn" class="cta-btn danger">⏹ Stop</button>
-            </div>
-        </header>
-
-        <section class="config-section">
+    <div class="container">
+        <h1>🔐 Kryptos K4 Advanced Decryptor</h1>
+        
+        <div class="control-panel">
             <div class="input-group">
-                <label>🔒 Ciphertext:</label>
-                <textarea id="ciphertext" class="cipher-input">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
+                <label>🔒 Full Ciphertext (97 symbols):</label>
+                <textarea id="ciphertext" rows="4">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPKWGDKZXTJCDIGKUHUAUEKCAR</textarea>
             </div>
-            
-            <div class="advanced-config">
-                <div class="config-column">
-                    <label>🔑 Custom Alphabet:</label>
-                    <input type="text" id="customAlphabet" value="KRYPTOSABCDEFGHIJLMNQUVWXZ" maxlength="26">
-                    
-                    <label>🎯 Known Plaintext:</label>
-                    <input type="text" id="knownText" placeholder="Partial known text">
-                </div>
-                
-                <div class="config-column">
-                    <label>⚙️ Workers (Cores):</label>
-                    <input type="range" id="workersSlider" min="1" max="8" value="4">
-                    <span id="workersValue">4</span>
 
-                    <label>⏱ Timeout (sec):</label>
-                    <input type="number" id="timeout" value="20" min="5" max="60">
+            <div class="advanced-settings">
+                <div class="setting">
+                    <label>🔑 Key Length (4-12):</label>
+                    <input type="number" id="keyLength" value="9" min="4" max="12">
                 </div>
-            </div>
-        </section>
-
-        <section class="visualization">
-            <div class="performance-metrics">
-                <div class="metric">
-                    <span class="label">⏳ Elapsed:</span>
-                    <span id="elapsedTime" class="value">0s</span>
-                </div>
-                <div class="metric">
-                    <span class="label">🔑 Keys Tried:</span>
-                    <span id="keysTried" class="value">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">🚀 Keys/Sec:</span>
-                    <span id="keysPerSec" class="value">0</span>
+                <div class="setting">
+                    <label>⚙️ Workers:</label>
+                    <input type="range" id="workers" min="2" max="16" value="8">
+                    <span id="workersValue">8</span>
                 </div>
             </div>
 
-            <div class="live-progress">
+            <div class="action-buttons">
+                <button id="startBtn">🚀 Start Attack</button>
+                <button id="stopBtn">⏹ Emergency Stop</button>
+            </div>
+        </div>
+
+        <div class="analytics">
+            <div class="real-time-stats">
+                <div class="stat">
+                    <span>⏱ Elapsed:</span>
+                    <span id="elapsed">0s</span>
+                </div>
+                <div class="stat">
+                    <span>🔑 Keys/Sec:</span>
+                    <span id="keysPerSec">0</span>
+                </div>
+                <div class="stat">
+                    <span>🏆 Top Score:</span>
+                    <span id="topScore">0</span>
+                </div>
+            </div>
+
+            <div class="visual-progress">
                 <div class="progress-labels">
                     <span>Current Key: <span id="currentKey">-</span></span>
-                    <span>Best Score: <span id="bestScore">0</span></span>
                 </div>
-                <div class="progress-bar-container">
+                <div class="progress-container">
                     <div class="progress-bar" id="progressBar"></div>
                 </div>
             </div>
-        </section>
+        </div>
 
-        <section class="results-section">
-            <div class="results-container">
-                <div class="top-results">
-                    <h3>🏆 Top Candidates</h3>
-                    <div id="resultsList" class="results-list"></div>
-                </div>
-                
-                <div class="comparison-view">
-                    <h3>🔍 Text Comparison</h3>
-                    <div id="textComparison" class="comparison-box"></div>
-                </div>
+        <div class="results-container">
+            <div class="column">
+                <h3>💎 Top Candidates</h3>
+                <div id="topResults" class="results-grid"></div>
             </div>
-        </section>
+            <div class="column">
+                <h3>🔍 Live Decryption</h3>
+                <div id="livePreview" class="decryption-preview"></div>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>
