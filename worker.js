@@ -96,32 +96,32 @@ class K4Worker {
         let score = 0;
         const textLength = text.length;
         
-        // Частотный анализ
+        // Frequency analysis
         const freqMap = {};
         for (const c of text) {
             freqMap[c] = (freqMap[c] || 0) + 1;
         }
         
-        // Сравнение с ожидаемой частотой
+        // Frequency match
         for (const [char, expected] of Object.entries(this.expectedFreq)) {
             const actual = ((freqMap[char] || 0) / textLength) * 100;
             score += Math.max(0, 100 - Math.abs(actual - expected));
         }
 
-        // Совпадение с известным текстом
+        // Known text match
         if (this.knownText && text.includes(this.knownText)) {
             score += 200;
         }
 
-        // Проверка паттернов Kryptos
-        const patterns = [/BERLIN/, /CLOCK/, /NORTHEAST/, /WEST/, /EAST/];
+        // Kryptos patterns
+        const patterns = [/BERLIN/, /CLOCK/, /NORTHEAST/];
         patterns.forEach(pattern => {
             if (pattern.test(text)) {
                 score += 150;
             }
         });
 
-        // Штраф за редкие комбинации
+        // Penalty for rare patterns
         const rarePatterns = [/Q{2,}/, /Z{2,}/, /X{2,}/];
         rarePatterns.forEach(pattern => {
             if (pattern.test(text)) {
@@ -133,5 +133,5 @@ class K4Worker {
     }
 }
 
-// Инициализация воркера
+// Worker initialization
 new K4Worker();
