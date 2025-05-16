@@ -13,6 +13,7 @@ class K4Decryptor {
         this.alphabetShift = 0;
         this.workerStatus = {};
         this.lastProgressUpdate = 0;
+        this.topResults = new Map();
         this.resultsCache = new Set();
 
         this.initElements();
@@ -136,6 +137,7 @@ class K4Decryptor {
         this.bestScore = 0;
         this.bestResult = null;
         this.workerStatus = {};
+        this.topResults.clear();
         this.resultsCache.clear();
         this.elements.topResults.innerHTML = '';
         this.elements.decryptedText.textContent = '';
@@ -173,7 +175,6 @@ class K4Decryptor {
             this.workerStatus[i] = { active: true, keysTested: 0 };
         }
 
-        // Start workers after initialization
         setTimeout(() => {
             this.workers.forEach(worker => {
                 worker.postMessage({ type: 'start' });
@@ -191,16 +192,21 @@ class K4Decryptor {
                 break;
 
             case 'result':
-                // Only show results with known plaintext match or high score
-                if (data.score > 100 || (this.elements.knownPlaintext.value && data.score > 50)) {
+                // Фильтруем только значимые результаты
+                if (data.score > 50 || (this.elements.knownPlaintext.value && data.method === 'known-text')) {
                     if (!this.resultsCache.has(data.key)) {
                         this.resultsCache.add(data.key);
+                        
+                        // Обновляем лучший результат
                         if (data.score > this.bestScore) {
                             this.bestScore = data.score;
                             this.bestResult = data;
                             this.elements.bestScore.textContent = Math.round(data.score);
+                            this.elements.decryptedText.textContent = data.plaintext;
                         }
-                        this.displayResult(data);
+
+                        // Добавляем в топ-20
+                        this.addToTopResults(data);
                     }
                 }
                 break;
@@ -220,57 +226,76 @@ class K4Decryptor {
         }
     }
 
+    addToTopResults(result) {
+        // Добавляем только если результат лучше существующих или есть место
+        if (this.topResults.size < 20 || result.score > Math.min(...Array.from(this.topResults.values()))) {
+            this.topResults.set(result.key, {
+                score: result.score,
+                plaintext: result.plaintext,
+                method: result.method
+            });
+
+            // Удаляем худший результат если превысили лимит
+            if (this.topResults.size > 20) {
+                const minScore = Math.min(...Array.from(this.topResults.values(), r => r.score));
+                for (const [key, res] of this.topResults) {
+                    if (res.score === minScore) {
+                        this.topResults.delete(key);
+                        break;
+                    }
+                }
+            }
+
+            this.displayTopResults();
+        }
+    }
+
+    displayTopResults() {
+        // Сортируем результаты по убыванию score
+        const sortedResults = Array.from(this.topResults.entries())
+            .sort((a, b) => b[1].score - a[1].score)
+            .slice(0, 20);
+
+        // Очищаем контейнер
+        this.elements.topResults.innerHTML = '';
+
+        // Добавляем отсортированные результаты
+        sortedResults.forEach(([key, result]) => {
+            const resultElement = document.createElement('div');
+            resultElement.className = 'result-item';
+            resultElement.innerHTML = `
+                <div class="result-key">Key: ${key}</div>
+                <div>${result.plaintext.substring(0, 80)}${result.plaintext.length > 80 ? '...' : ''}</div>
+                <div class="result-score">Score: ${Math.round(result.score)} (${result.method})</div>
+            `;
+            this.elements.topResults.appendChild(resultElement);
+        });
+    }
+
     updateProgress() {
         const now = performance.now();
-        if (now - this.lastProgressUpdate < 200) return; // Throttle updates
+        if (now - this.lastProgressUpdate < 200) return;
         this.lastProgressUpdate = now;
 
         this.keysTested = Object.values(this.workerStatus).reduce((sum, w) => sum + w.keysTested, 0);
         
-        // Update keys/sec calculation
         const elapsedSeconds = (now - this.startTime) / 1000;
         this.keysPerSecond = elapsedSeconds > 0 ? Math.round(this.keysTested / elapsedSeconds) : 0;
         
-        // Update progress percentage
         const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
         this.elements.progressBar.style.width = `${progressPercent}%`;
         this.elements.completion.textContent = `${progressPercent.toFixed(2)}%`;
     }
 
-    displayResult(result) {
-        const resultElement = document.createElement('div');
-        resultElement.className = 'result-item';
-        resultElement.innerHTML = `
-            <div class="result-key">Key: ${result.key}</div>
-            <div>${result.plaintext.substring(0, 80)}${result.plaintext.length > 80 ? '...' : ''}</div>
-            <div class="result-score">Score: ${Math.round(result.score)} (${result.method})</div>
-        `;
-        this.elements.topResults.prepend(resultElement);
-
-        // Keep only top 20 results
-        while (this.elements.topResults.children.length > 20) {
-            this.elements.topResults.removeChild(this.elements.topResults.lastChild);
-        }
-
-        // Update decrypted text preview for best result
-        if (result.score === this.bestScore) {
-            this.elements.decryptedText.textContent = result.plaintext;
-        }
-    }
-
     updateUI() {
         if (!this.isRunning) return;
 
-        // Update elapsed time
         const elapsedSeconds = (performance.now() - this.startTime) / 1000;
         this.elements.elapsed.textContent = elapsedSeconds >= 60 
             ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s`
             : `${elapsedSeconds.toFixed(1)}s`;
 
-        // Update keys tested
         this.elements.keysTested.textContent = this.formatLargeNumber(this.keysTested);
-
-        // Update keys per second
         this.elements.keysPerSec.textContent = this.formatLargeNumber(this.keysPerSecond);
 
         requestAnimationFrame(() => this.updateUI());
@@ -296,7 +321,6 @@ class K4Decryptor {
     }
 }
 
-// Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
     window.decryptor = new K4Decryptor();
 });
