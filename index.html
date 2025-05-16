@@ -3,114 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kryptos K4 Ultimate Decryptor</title>
+    <title>Kryptos K4 Full Spectrum Analyzer</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="container">
-        <!-- Заголовок -->
-        <header class="header">
-            <h1>🛠️ Kryptos K4 Professional Cracker</h1>
+    <div class="main-container">
+        <!-- Header Section -->
+        <header class="app-header">
+            <h1>🕵️ Kryptos K4 Professional Analysis Suite</h1>
+            <div class="runtime-controls">
+                <button id="mainStartBtn" class="control-btn">▶️ Start</button>
+                <button id="mainStopBtn" class="control-btn danger">⏹ Stop</button>
+                <button id="advancedMenuBtn" class="control-btn">⚙️ Advanced</button>
+            </div>
         </header>
 
-        <!-- Панель управления -->
-        <section class="control-section">
-            <div class="cipher-input">
-                <label for="ciphertext">🔒 Полный шифротекст K4 (97 символов):</label>
-                <textarea 
-                    id="ciphertext" 
-                    rows="5"
-                    spellcheck="false"
-                    placeholder="Вставьте шифротекст здесь..."
-                >OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
+        <!-- Main Content -->
+        <div class="workspace">
+            <!-- Cipher Input Panel -->
+            <div class="input-panel">
+                <div class="cipher-input">
+                    <label>🔐 Ciphertext (K4 97 chars):</label>
+                    <textarea id="ciphertext" spellcheck="false">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
+                </div>
+                
+                <div class="known-text-input">
+                    <label>📖 Known Plaintext:</label>
+                    <input type="text" id="knownText" placeholder="Enter known text fragment">
+                </div>
             </div>
 
-            <div class="settings-grid">
-                <!-- Настройки ключа -->
-                <div class="setting">
-                    <label for="keyLength">🔑 Длина ключа:</label>
-                    <input 
-                        type="number" 
-                        id="keyLength" 
-                        min="4" 
-                        max="12" 
-                        value="9"
-                        class="num-input"
-                    >
+            <!-- Analysis Dashboard -->
+            <div class="dashboard">
+                <!-- Progress Visualization -->
+                <div class="progress-section">
+                    <div class="progress-header">
+                        <span>Progress</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="mainProgressBar"></div>
+                    </div>
+                    <div class="progress-stats">
+                        <div class="stat-item">
+                            <span>⏱ Time:</span>
+                            <span id="elapsedTime">00:00</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>🔑 Keys Tested:</span>
+                            <span id="keysTested">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>🚀 Keys/Sec:</span>
+                            <span id="keysPerSec">0</span>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Настройки воркеров -->
-                <div class="setting">
-                    <label for="workers">⚙️ Количество потоков:</label>
-                    <div class="slider-container">
-                        <input 
-                            type="range" 
-                            id="workers" 
-                            min="2" 
-                            max="16" 
-                            value="8"
-                            class="range-input"
-                        >
-                        <span id="workersValue" class="range-value">8</span>
+                <!-- Live Analysis -->
+                <div class="live-analysis">
+                    <div class="current-key">
+                        <span>Current Key:</span>
+                        <code id="currentKey">-</code>
+                    </div>
+                    <div class="best-match">
+                        <span>Best Match:</span>
+                        <code id="bestMatchScore">0</code>
                     </div>
                 </div>
             </div>
 
-            <!-- Кнопки управления -->
-            <div class="action-buttons">
-                <button id="startBtn" class="btn primary">
-                    🚀 Начать атаку
-                </button>
-                <button id="stopBtn" class="btn danger">
-                    ⚡ Экстренная остановка
-                </button>
-            </div>
-        </section>
-
-        <!-- Статистика в реальном времени -->
-        <section class="stats-section">
-            <div class="metrics">
-                <div class="metric">
-                    <span class="label">⏱ Время:</span>
-                    <span id="elapsedTime" class="value">0:00</span>
-                </div>
-                <div class="metric">
-                    <span class="label">🔑 Ключей/сек:</span>
-                    <span id="keysPerSec" class="value">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">🏆 Лучший результат:</span>
-                    <span id="bestScore" class="value">0</span>
-                </div>
+            <!-- Results Tabs -->
+            <div class="results-tabs">
+                <div class="tab active" data-tab="candidates">Top Candidates</div>
+                <div class="tab" data-tab="comparison">Text Comparison</div>
+                <div class="tab" data-tab="stats">Statistics</div>
             </div>
 
-            <!-- Прогресс-бар -->
-            <div class="progress-container">
-                <div class="progress-labels">
-                    <span>Текущий ключ: <span id="currentKey">-</span></span>
-                    <span>Прогресс: <span id="progressPercent">0%</span></span>
+            <!-- Results Containers -->
+            <div class="results-container">
+                <!-- Top Candidates -->
+                <div class="results-content active" id="candidatesTab">
+                    <div class="result-list" id="topCandidates"></div>
                 </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-            </div>
-        </section>
 
-        <!-- Результаты -->
-        <section class="results-section">
-            <div class="results-column">
-                <h3>🏆 Топ-кандидаты</h3>
-                <div id="topResults" class="results-list"></div>
+                <!-- Text Comparison -->
+                <div class="results-content" id="comparisonTab">
+                    <div class="comparison-wrapper">
+                        <div class="text-block">
+                            <h4>Decrypted Text</h4>
+                            <div id="decryptedPreview" class="preview-area"></div>
+                        </div>
+                        <div class="text-block">
+                            <h4>Known Text</h4>
+                            <div id="knownTextPreview" class="preview-area"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="results-content" id="statsTab">
+                    <div class="charts">
+                        <div class="chart-container">
+                            <canvas id="frequencyChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="entropyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
-            <div class="results-column">
-                <h3>🔍 Предпросмотр дешифровки</h3>
-                <div id="livePreview" class="preview-box"></div>
+        </div>
+
+        <!-- Advanced Settings Modal -->
+        <div class="modal" id="advancedSettings">
+            <div class="modal-content">
+                <h3>Advanced Settings</h3>
+                <!-- Содержимое настроек -->
             </div>
-        </section>
+        </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
