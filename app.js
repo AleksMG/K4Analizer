@@ -25,17 +25,10 @@ class K4Decryptor {
             'LONGITUDE', 'COORDINATES', 'GOVERNMENT', 'INTELLIGENCE', 'WASHINGTON'
         ];
 
-        // Оптимизация: Предварительное создание карты алфавита (НОВОЕ)
-        this.alphabetIndexMap = this.createAlphabetMap(this.alphabet);
-        this.workerSpeedCache = {};
-    }
-
-    createAlphabetMap(alphabet) {
-        const map = {};
-        for (let i = 0; i < alphabet.length; i++) {
-            map[alphabet[i]] = i;
-        }
-        return map;
+        this.initElements();
+        this.initEventListeners();
+        this.updateTotalKeys();
+        this.updateKnownWords();
     }
 
     initElements() {
@@ -82,7 +75,6 @@ class K4Decryptor {
         alphabet = [...new Set(alphabet.split(''))].join('').replace(/[^A-Z]/g, '');
         this.elements.alphabet.value = alphabet;
         this.alphabet = alphabet;
-        this.alphabetIndexMap = this.createAlphabetMap(alphabet); // Обновляем карту (НОВОЕ)
         this.updateTotalKeys();
     }
 
@@ -94,7 +86,6 @@ class K4Decryptor {
         }
         this.alphabet = alphabetArray.join('');
         this.elements.alphabet.value = this.alphabet;
-        this.alphabetIndexMap = this.createAlphabetMap(this.alphabet); // Обновляем карту (НОВОЕ)
     }
 
     resetAlphabet() {
@@ -102,7 +93,6 @@ class K4Decryptor {
         this.elements.alphabet.value = this.alphabet;
         this.elements.alphabetShift.value = 0;
         this.alphabetShift = 0;
-        this.alphabetIndexMap = this.createAlphabetMap(this.alphabet); // Обновляем карту (НОВОЕ)
     }
 
     applyAlphabetShift() {
@@ -116,7 +106,6 @@ class K4Decryptor {
         const shifted = alphabet.slice(shift) + alphabet.slice(0, shift);
         this.alphabet = shifted;
         this.elements.alphabet.value = shifted;
-        this.alphabetIndexMap = this.createAlphabetMap(shifted); // Обновляем карту (НОВОЕ)
     }
 
     updateTotalKeys() {
@@ -166,8 +155,6 @@ class K4Decryptor {
         this.workerStatus = {};
         this.topResults.clear();
         this.resultsCache.clear();
-        this.workerSpeedCache = {}; // Очищаем кеш (НОВОЕ)
-        
         this.elements.topResults.innerHTML = '';
         this.elements.decryptedText.textContent = '';
         this.elements.progressBar.style.width = '0%';
@@ -191,33 +178,24 @@ class K4Decryptor {
         for (let i = 0; i < workerCount; i++) {
             const worker = new Worker('worker.js');
             worker.onmessage = (e) => this.handleWorkerMessage(e.data, i);
-            
-            // Оптимизация: Увеличенные параметры (НОВОЕ)
             worker.postMessage({
                 type: 'init',
                 ciphertext,
                 keyLength,
                 knownPlaintext,
                 alphabet: this.alphabet,
-                alphabetIndexMap: this.alphabetIndexMap, // Передаём карту (НОВОЕ)
                 workerId: i,
-                totalWorkers: workerCount,
-                batchSize: 500000,  // Было: ~5000 (НОВОЕ)
-                reportInterval: 2000 // Было: 1000 (НОВОЕ)
+                totalWorkers: workerCount
             });
-            
             this.workers.push(worker);
-            this.workerStatus[i] = { 
-                active: true, 
-                keysTested: 0,
-                lastReportedKeys: 0, // Для точного расчёта скорости (НОВОЕ)
-                lastReportTime: performance.now() 
-            };
+            this.workerStatus[i] = { active: true, keysTested: 0 };
         }
 
         setTimeout(() => {
-            this.workers.forEach(worker => worker.postMessage({ type: 'start' }));
-        }, 50);
+            this.workers.forEach(worker => {
+                worker.postMessage({ type: 'start' });
+            });
+        }, 100);
     }
 
     handleWorkerMessage(data, workerId) {
@@ -225,16 +203,7 @@ class K4Decryptor {
 
         switch (data.type) {
             case 'progress':
-                // Точный расчёт скорости (НОВОЕ)
-                const now = performance.now();
-                const timeDiff = (now - this.workerStatus[workerId].lastReportTime) / 1000;
-                const keysDiff = data.keysTested - this.workerStatus[workerId].lastReportedKeys;
-                
                 this.workerStatus[workerId].keysTested = data.keysTested;
-                this.workerStatus[workerId].lastReportedKeys = data.keysTested;
-                this.workerStatus[workerId].lastReportTime = now;
-                this.workerSpeedCache[workerId] = Math.round(keysDiff / timeDiff); // Кешируем скорость
-                
                 this.updateProgress();
                 break;
 
@@ -242,13 +211,14 @@ class K4Decryptor {
                 if (data.score > 0 && !this.resultsCache.has(data.key)) {
                     this.resultsCache.add(data.key);
                     
-                    // Оптимизация: Быстрый расчёт score (НОВОЕ)
-                    const score = this.quickScoreCalculation(data);
+                    const foundWords = this.analyzeText(data.plaintext);
+                    const score = this.calculateScore(data.plaintext, foundWords);
                     
-                    if (score > this.bestScore * 0.8 || data.hasKnownWord) {
+                    if (score > this.bestScore * 0.8 || foundWords.some(w => w.isKnown)) {
                         const result = {
                             ...data,
                             score,
+                            foundWords,
                             plaintextShort: data.plaintext.substring(0, 60) + (data.plaintext.length > 60 ? '...' : '')
                         };
 
@@ -277,47 +247,6 @@ class K4Decryptor {
                 }
                 break;
         }
-    }
-
-    quickScoreCalculation(result) {
-        // Упрощённая версия оригинального calculateScore (НОВОЕ)
-        let score = result.baseScore || 0;
-        
-        if (result.hasKnownWord) {
-            score += 5000 * (this.knownWords[0]?.length || 0);
-        }
-        
-        if (result.wordCount > 3) score += 500;
-        if (result.wordCount > 5) score += 1000;
-        
-        return Math.round(score);
-    }
-
-    updateProgress() {
-        const now = performance.now();
-        if (now - this.lastProgressUpdate < 500) return; // Реже обновляем UI (НОВОЕ)
-        
-        this.lastProgressUpdate = now;
-        
-        // Агрегируем данные (НОВОЕ)
-        this.keysTested = Object.values(this.workerStatus).reduce((sum, w) => sum + w.keysTested, 0);
-        this.keysPerSecond = Object.values(this.workerSpeedCache).reduce((sum, speed) => sum + speed, 0);
-        
-        const elapsedSeconds = (now - this.startTime) / 1000;
-        const progressPercent = this.totalKeys > 0 
-            ? Math.min(100, (this.keysTested / this.totalKeys) * 100)
-            : 0;
-
-        // Группируем обновления DOM (НОВОЕ)
-        requestAnimationFrame(() => {
-            this.elements.progressBar.style.width = `${progressPercent}%`;
-            this.elements.completion.textContent = `${progressPercent.toFixed(2)}%`;
-            this.elements.keysTested.textContent = this.formatLargeNumber(this.keysTested);
-            this.elements.keysPerSec.textContent = this.formatLargeNumber(this.keysPerSecond);
-            this.elements.elapsed.textContent = elapsedSeconds >= 60 
-                ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s`
-                : `${elapsedSeconds.toFixed(1)}s`;
-        });
     }
 
     analyzeText(text) {
@@ -422,8 +351,31 @@ class K4Decryptor {
         });
     }
 
+    updateProgress() {
+        const now = performance.now();
+        if (now - this.lastProgressUpdate < 200) return;
+        this.lastProgressUpdate = now;
+
+        this.keysTested = Object.values(this.workerStatus).reduce((sum, w) => sum + w.keysTested, 0);
+        
+        const elapsedSeconds = (now - this.startTime) / 1000;
+        this.keysPerSecond = elapsedSeconds > 0 ? Math.round(this.keysTested / elapsedSeconds) : 0;
+        
+        const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
+        this.elements.progressBar.style.width = `${progressPercent}%`;
+        this.elements.completion.textContent = `${progressPercent.toFixed(2)}%`;
+    }
+
     updateUI() {
         if (!this.isRunning) return;
+
+        const elapsedSeconds = (performance.now() - this.startTime) / 1000;
+        this.elements.elapsed.textContent = elapsedSeconds >= 60 
+            ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s`
+            : `${elapsedSeconds.toFixed(1)}s`;
+
+        this.elements.keysTested.textContent = this.formatLargeNumber(this.keysTested);
+        this.elements.keysPerSec.textContent = this.formatLargeNumber(this.keysPerSecond);
 
         requestAnimationFrame(() => this.updateUI());
     }
