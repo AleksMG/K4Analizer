@@ -15,10 +15,20 @@ class K4Decryptor {
         this.lastProgressUpdate = 0;
         this.topResults = new Map();
         this.resultsCache = new Set();
+        this.knownWords = [];
+        this.commonPatterns = [
+            'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
+            'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
+            'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
+            'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
+            'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'DIRECTION', 'LATITUDE',
+            'LONGITUDE', 'COORDINATES', 'GOVERNMENT', 'INTELLIGENCE', 'WASHINGTON'
+        ];
 
         this.initElements();
         this.initEventListeners();
         this.updateTotalKeys();
+        this.updateKnownWords();
     }
 
     initElements() {
@@ -57,6 +67,7 @@ class K4Decryptor {
         this.elements.keyLength.addEventListener('change', () => this.updateTotalKeys());
         this.elements.alphabet.addEventListener('input', () => this.validateAlphabet());
         this.elements.alphabetShift.addEventListener('change', () => this.applyAlphabetShift());
+        this.elements.knownPlaintext.addEventListener('input', () => this.updateKnownWords());
     }
 
     validateAlphabet() {
@@ -101,6 +112,11 @@ class K4Decryptor {
         const keyLength = parseInt(this.elements.keyLength.value);
         this.totalKeys = Math.pow(this.alphabet.length, keyLength);
         this.elements.totalKeys.textContent = this.formatLargeNumber(this.totalKeys);
+    }
+
+    updateKnownWords() {
+        const knownText = this.elements.knownPlaintext.value.trim().toUpperCase();
+        this.knownWords = knownText ? [knownText] : [];
     }
 
     start() {
@@ -192,21 +208,28 @@ class K4Decryptor {
                 break;
 
             case 'result':
-                // Фильтруем только значимые результаты
-                if (data.score > 50 || (this.elements.knownPlaintext.value && data.method === 'known-text')) {
-                    if (!this.resultsCache.has(data.key)) {
-                        this.resultsCache.add(data.key);
-                        
-                        // Обновляем лучший результат
-                        if (data.score > this.bestScore) {
-                            this.bestScore = data.score;
-                            this.bestResult = data;
-                            this.elements.bestScore.textContent = Math.round(data.score);
-                            this.elements.decryptedText.textContent = data.plaintext;
+                if (data.score > 0 && !this.resultsCache.has(data.key)) {
+                    this.resultsCache.add(data.key);
+                    
+                    const foundWords = this.analyzeText(data.plaintext);
+                    const score = this.calculateScore(data.plaintext, foundWords);
+                    
+                    if (score > this.bestScore * 0.8 || foundWords.some(w => w.isKnown)) {
+                        const result = {
+                            ...data,
+                            score,
+                            foundWords,
+                            plaintextShort: data.plaintext.substring(0, 60) + (data.plaintext.length > 60 ? '...' : '')
+                        };
+
+                        if (score > this.bestScore) {
+                            this.bestScore = score;
+                            this.bestResult = result;
+                            this.elements.bestScore.textContent = Math.round(score);
+                            this.updateDecryptedText();
                         }
 
-                        // Добавляем в топ-20
-                        this.addToTopResults(data);
+                        this.addToTopResults(result);
                     }
                 }
                 break;
@@ -226,47 +249,103 @@ class K4Decryptor {
         }
     }
 
-    addToTopResults(result) {
-        // Добавляем только если результат лучше существующих или есть место
-        if (this.topResults.size < 20 || result.score > Math.min(...Array.from(this.topResults.values()))) {
-            this.topResults.set(result.key, {
-                score: result.score,
-                plaintext: result.plaintext,
-                method: result.method
-            });
+    analyzeText(text) {
+        const foundWords = [];
+        
+        // Проверяем известные слова
+        for (const word of this.knownWords) {
+            const regex = new RegExp(word, 'g');
+            const matches = text.match(regex);
+            if (matches) {
+                foundWords.push({
+                    word,
+                    score: 100 * word.length * matches.length,
+                    isKnown: true
+                });
+            }
+        }
 
-            // Удаляем худший результат если превысили лимит
-            if (this.topResults.size > 20) {
-                const minScore = Math.min(...Array.from(this.topResults.values(), r => r.score));
-                for (const [key, res] of this.topResults) {
-                    if (res.score === minScore) {
-                        this.topResults.delete(key);
-                        break;
-                    }
+        // Проверяем общие паттерны
+        for (const pattern of this.commonPatterns) {
+            const regex = new RegExp(pattern, 'g');
+            const matches = text.match(regex);
+            if (matches) {
+                foundWords.push({
+                    word: pattern,
+                    score: 25 * pattern.length * matches.length,
+                    isKnown: false
+                });
+            }
+        }
+
+        return foundWords.sort((a, b) => b.word.length - a.word.length);
+    }
+
+    calculateScore(plaintext, foundWords) {
+        let score = foundWords.reduce((sum, word) => sum + word.score, 0);
+        
+        // Бонус за количество пробелов (слов)
+        const spaceCount = (plaintext.match(/ /g) || []).length;
+        score += spaceCount * 10;
+        
+        // Бонус за длину текста без неалфавитных символов
+        const cleanText = plaintext.replace(new RegExp(`[^${this.alphabet} ]`, 'g'), '');
+        score += cleanText.length * 0.5;
+        
+        return Math.round(score);
+    }
+
+    addToTopResults(result) {
+        this.topResults.set(result.key, result);
+
+        // Удаляем худший результат если превысили лимит
+        if (this.topResults.size > 20) {
+            const minScore = Math.min(...Array.from(this.topResults.values()).map(r => r.score));
+            for (const [key, res] of this.topResults) {
+                if (res.score === minScore) {
+                    this.topResults.delete(key);
+                    break;
                 }
             }
-
-            this.displayTopResults();
         }
+
+        this.displayTopResults();
+    }
+
+    updateDecryptedText() {
+        if (!this.bestResult) return;
+
+        let html = this.bestResult.plaintext;
+        const uniqueWords = [...new Set(this.bestResult.foundWords.map(w => w.word))];
+        
+        for (const word of uniqueWords) {
+            const regex = new RegExp(word, 'g');
+            html = html.replace(regex, `<span class="highlight-word">${word}</span>`);
+        }
+
+        this.elements.decryptedText.innerHTML = html;
     }
 
     displayTopResults() {
-        // Сортируем результаты по убыванию score
-        const sortedResults = Array.from(this.topResults.entries())
-            .sort((a, b) => b[1].score - a[1].score)
+        const sortedResults = Array.from(this.topResults.values())
+            .sort((a, b) => b.score - a.score)
             .slice(0, 20);
 
-        // Очищаем контейнер
         this.elements.topResults.innerHTML = '';
 
-        // Добавляем отсортированные результаты
-        sortedResults.forEach(([key, result]) => {
+        sortedResults.forEach(result => {
+            const wordsList = result.foundWords
+                .slice(0, 5)
+                .map(word => `${word.word}(${word.isKnown ? 'known' : word.score})`)
+                .join(', ');
+
             const resultElement = document.createElement('div');
             resultElement.className = 'result-item';
             resultElement.innerHTML = `
-                <div class="result-key">Key: ${key}</div>
-                <div>${result.plaintext.substring(0, 80)}${result.plaintext.length > 80 ? '...' : ''}</div>
-                <div class="result-score">Score: ${Math.round(result.score)} (${result.method})</div>
+                <div class="result-key">Key: ${result.key}</div>
+                <div class="result-text">${result.plaintextShort}</div>
+                <div class="result-words">Words: ${wordsList}</div>
+                <div class="result-score">Score: ${Math.round(result.score)}</div>
             `;
             this.elements.topResults.appendChild(resultElement);
         });
