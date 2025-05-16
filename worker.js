@@ -20,233 +20,171 @@ const COMMON_PATTERNS = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        this.alphabetIndex = {};
+        this.charMap = new Uint8Array(256); // ASCII lookup table
         this.running = false;
-        this.keysTested = 0;
-        this.lastReportTime = 0;
-        this.bestScore = 0;
-        this.keyGenerator = null;
-        this.workerId = 0;
-        this.totalWorkers = 1;
-        this.reportInterval = 500;
-        this.keysPerBatch = 10000;
-        this.ciphertext = '';
-        this.keyLength = 0;
-        this.knownPlaintext = '';
         
-        // Инициализация lookup-таблицы
-        this.initAlphabetIndex();
-        
+        // Initialize character map
+        for (let i = 0; i < this.alphabet.length; i++) {
+            this.charMap[this.alphabet.charCodeAt(i)] = i;
+        }
+
         self.onmessage = (e) => this.handleMessage(e.data);
     }
 
-    initAlphabetIndex() {
-        for (let i = 0; i < this.alphabet.length; i++) {
-            this.alphabetIndex[this.alphabet[i]] = i;
-        }
-    }
-
-    handleMessage(message) {
-        switch (message.type) {
+    handleMessage(msg) {
+        switch (msg.type) {
             case 'init':
-                this.alphabet = message.alphabet || this.alphabet;
-                this.initAlphabetIndex();
-                this.ciphertext = message.ciphertext;
-                this.keyLength = message.keyLength;
-                this.knownPlaintext = message.knownPlaintext;
-                this.workerId = message.workerId || 0;
-                this.totalWorkers = message.totalWorkers || 1;
-                this.keyGenerator = this.createKeyGenerator();
+                this.ciphertext = msg.ciphertext;
+                this.keyLength = msg.keyLength;
+                this.knownPlaintext = msg.knownPlaintext || '';
+                this.workerId = msg.workerId || 0;
+                this.totalWorkers = msg.totalWorkers || 1;
+                this.keysTested = 0;
                 break;
                 
             case 'start':
-                if (!this.keyGenerator) {
-                    self.postMessage({ type: 'error', message: 'Worker not initialized' });
-                    return;
-                }
                 this.running = true;
                 this.startTime = performance.now();
                 this.lastReportTime = this.startTime;
-                this.processKeys();
+                this.bruteForce();
                 break;
                 
             case 'stop':
                 this.running = false;
                 break;
-                
-            case 'setRange':
-                if (this.keyGenerator) {
-                    this.keyGenerator.setRange(message.start, message.end);
-                }
-                break;
         }
     }
 
-    *createKeyGenerator() {
-        const alphabetLength = this.alphabet.length;
-        const totalKeys = Math.pow(alphabetLength, this.keyLength);
+    bruteForce() {
+        const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
         
-        let currentKey = startKey;
+        let bestScore = 0;
+        let bestKey = null;
+        let bestText = '';
         
-        while (currentKey < endKey) {
-            let key = '';
-            let n = currentKey;
-            
-            for (let i = 0; i < this.keyLength; i++) {
-                key = this.alphabet[n % alphabetLength] + key;
-                n = Math.floor(n / alphabetLength);
-            }
-            
-            yield key;
-            currentKey++;
-            
-            // Проверяем не пора ли остановиться
-            if (!this.running) break;
-        }
-    }
-
-    processKeys() {
-        if (!this.running) return;
+        // Precompile regexes for known patterns
+        const knownRegex = this.knownPlaintext ? 
+            new RegExp(this.knownPlaintext, 'g') : null;
+        const patternRegexes = COMMON_PATTERNS.map(p => new RegExp(p, 'g'));
         
-        const batchStartTime = performance.now();
-        let batchCount = 0;
-        let bestBatchResult = null;
-        
-        while (batchCount < this.keysPerBatch) {
-            const { value: key, done } = this.keyGenerator.next();
-            
-            if (done) {
-                if (bestBatchResult) {
-                    self.postMessage({
-                        type: 'result',
-                        key: bestBatchResult.key,
-                        plaintext: bestBatchResult.plaintext,
-                        score: bestBatchResult.score
-                    });
-                }
-                self.postMessage({ 
-                    type: 'complete', 
-                    keysTested: this.keysTested 
-                });
-                this.running = false;
-                return;
-            }
-            
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
+            const key = this.generateKey(keyNum);
             const plaintext = this.decrypt(key);
-            const score = this.scorePlaintext(plaintext);
+            const score = this.scoreText(plaintext, knownRegex, patternRegexes);
             
             this.keysTested++;
-            batchCount++;
             
-            // Сохраняем лучший результат в батче
-            if (score > (bestBatchResult?.score || 0)) {
-                bestBatchResult = { key, plaintext, score };
+            if (score > bestScore) {
+                bestScore = score;
+                bestKey = key;
+                bestText = plaintext;
+                self.postMessage({
+                    type: 'result',
+                    key,
+                    plaintext,
+                    score
+                });
             }
             
-            // Отправляем прогресс, но не чаще чем reportInterval
-            const now = performance.now();
-            if (now - this.lastReportTime >= this.reportInterval) {
+            // Report progress every 50k keys
+            if (this.keysTested % 50000 === 0) {
+                const now = performance.now();
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested,
-                    kps: kps
+                    kps
                 });
-                this.lastReportTime = now;
             }
-            
-            // Защита от зависания - yield каждые 50ms
-            if (performance.now() - batchStartTime > 50) break;
         }
         
-        // Отправляем лучший результат батча
-        if (bestBatchResult) {
-            self.postMessage({
-                type: 'result',
-                key: bestBatchResult.key,
-                plaintext: bestBatchResult.plaintext,
-                score: bestBatchResult.score
-            });
+        if (this.running) {
+            self.postMessage({ type: 'complete' });
         }
-        
-        // Продолжаем обработку
-        setTimeout(() => this.processKeys(), 0);
+    }
+
+    generateKey(num) {
+        let key = '';
+        for (let i = 0; i < this.keyLength; i++) {
+            key = this.alphabet[num % 26] + key;
+            num = Math.floor(num / 26);
+        }
+        return key;
     }
 
     decrypt(key) {
         let plaintext = '';
-        const keyLength = key.length;
+        const keyLen = key.length;
         
         for (let i = 0; i < this.ciphertext.length; i++) {
-            const cipherChar = this.ciphertext[i];
-            const keyChar = key[i % keyLength];
-            
-            const cipherPos = this.alphabetIndex[cipherChar];
-            const keyPos = this.alphabetIndex[keyChar];
-            
-            if (cipherPos === undefined || keyPos === undefined) {
-                plaintext += '?';
-                continue;
-            }
-            
-            const plainPos = (cipherPos - keyPos + 26) % 26;
-            plaintext += this.alphabet[plainPos];
+            const cipherPos = this.charMap[this.ciphertext.charCodeAt(i)];
+            const keyPos = this.charMap[key.charCodeAt(i % keyLen)];
+            plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
         }
         
         return plaintext;
     }
 
-    scorePlaintext(plaintext) {
+    scoreText(text, knownRegex, patternRegexes) {
         let score = 0;
         
-        // 1. Проверка известного текста (максимальный приоритет)
-        if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
+        // 1. Known plaintext check
+        if (knownRegex && text.match(knownRegex)) {
             score += 1000 * this.knownPlaintext.length;
         }
         
-        // 2. Частотный анализ (только для стандартного алфавита)
+        // 2. Frequency analysis (only for standard alphabet)
         if (this.alphabet === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
-            const freq = {};
+            const freq = new Uint16Array(26);
             let totalLetters = 0;
             
-            for (const char of plaintext) {
-                if (this.alphabet.includes(char)) {
-                    freq[char] = (freq[char] || 0) + 1;
+            for (let i = 0; i < text.length; i++) {
+                const code = text.charCodeAt(i);
+                if (code >= 65 && code <= 90) {
+                    freq[code - 65]++;
                     totalLetters++;
                 }
             }
             
             if (totalLetters > 0) {
-                for (const char in freq) {
-                    const expected = ENGLISH_FREQ[char] || 0;
-                    const actual = (freq[char] / totalLetters) * 100;
+                for (let i = 0; i < 26; i++) {
+                    const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
+                    const actual = (freq[i] / totalLetters) * 100;
                     score += 100 - Math.abs(expected - actual);
                 }
             }
         }
         
-        // 3. Общие паттерны
-        for (const pattern of COMMON_PATTERNS) {
-            const matches = plaintext.match(new RegExp(pattern, 'g'));
+        // 3. Common patterns
+        for (let i = 0; i < patternRegexes.length; i++) {
+            const matches = text.match(patternRegexes[i]);
             if (matches) {
-                score += pattern.length * 25 * matches.length;
+                score += COMMON_PATTERNS[i].length * 25 * matches.length;
             }
         }
         
-        // 4. Бонус за пробелы (признак слов)
-        const spaceCount = (plaintext.match(/ /g) || []).length;
+        // 4. Spaces bonus
+        let spaceCount = 0;
+        for (let i = 0; i < text.length; i++) {
+            if (text.charCodeAt(i) === 32) spaceCount++;
+        }
         score += spaceCount * 15;
         
-        // 5. Штраф за неалфавитные символы
-        const invalidChars = plaintext.replace(new RegExp(`[${this.alphabet} ]`, 'g'), '').length;
+        // 5. Penalty for invalid chars
+        let invalidChars = 0;
+        for (let i = 0; i < text.length; i++) {
+            const code = text.charCodeAt(i);
+            if (!((code >= 65 && code <= 90) || code === 32)) {
+                invalidChars++;
+            }
+        }
         score -= invalidChars * 10;
         
         return Math.max(0, Math.round(score));
     }
 }
 
-// Запускаем воркер
 new K4Worker();
