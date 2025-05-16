@@ -3,133 +3,165 @@ class K4Decryptor {
         this.workers = [];
         this.isRunning = false;
         this.startTime = null;
-        this.totalKeys = 0;
-        this.keysProcessed = 0;
+        this.keysTested = 0;
+        this.keysPerSecond = 0;
+        this.lastUpdateTime = 0;
         this.bestScore = 0;
-        this.currentKey = '';
-        this.maxTime = 5 * 60 * 1000; // 5 минут
-        this.timeoutId = null;
+        this.bestResult = null;
+        this.totalKeys = 0;
 
-        this.initControls();
-        this.updateUI();
+        this.initElements();
+        this.initEventListeners();
     }
 
-    initControls() {
-        document.getElementById('startBtn').addEventListener('click', () => this.start());
-        document.getElementById('stopBtn').addEventListener('click', () => this.stop());
-        document.getElementById('workers').addEventListener('input', e => {
-            document.getElementById('workersValue').textContent = e.target.value;
-        });
-        document.getElementById('maxTime').addEventListener('change', e => {
-            this.maxTime = e.target.value * 60 * 1000;
+    initElements() {
+        this.elements = {
+            startBtn: document.getElementById('startBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            ciphertext: document.getElementById('ciphertext'),
+            knownPlaintext: document.getElementById('knownPlaintext'),
+            keyLength: document.getElementById('keyLength'),
+            workers: document.getElementById('workers'),
+            workersValue: document.getElementById('workersValue'),
+            elapsed: document.getElementById('elapsed'),
+            keysTested: document.getElementById('keysTested'),
+            keysPerSec: document.getElementById('keysPerSec'),
+            progressBar: document.getElementById('progressBar'),
+            topResults: document.getElementById('topResults'),
+            decryptedText: document.getElementById('decryptedText')
+        };
+    }
+
+    initEventListeners() {
+        this.elements.startBtn.addEventListener('click', () => this.start());
+        this.elements.stopBtn.addEventListener('click', () => this.stop());
+        this.elements.workers.addEventListener('input', () => {
+            this.elements.workersValue.textContent = this.elements.workers.value;
         });
     }
 
     start() {
         if (this.isRunning) return;
-        
-        const ciphertext = document.getElementById('ciphertext').value
-            .toUpperCase()
-            .replace(/[^A-Z]/g, '');
 
-        if (ciphertext.length !== 97) {
-            this.showError('Invalid K4 cipher! Must be exactly 97 characters.');
+        const ciphertext = this.elements.ciphertext.value.trim().toUpperCase();
+        if (!this.validateCiphertext(ciphertext)) {
+            alert('Invalid ciphertext! Must be 97 uppercase letters (A-Z)');
             return;
         }
 
-        this.initializeWorkers(ciphertext);
+        this.resetState();
         this.isRunning = true;
         this.startTime = performance.now();
-        this.timeoutId = setTimeout(() => this.stop(), this.maxTime);
-        requestAnimationFrame(() => this.updateUI());
+        this.lastUpdateTime = this.startTime;
+        this.elements.startBtn.disabled = true;
+        this.elements.stopBtn.disabled = false;
+
+        this.initWorkers(ciphertext);
+        this.updateUI();
     }
 
-    initializeWorkers(ciphertext) {
-        const workerCount = parseInt(document.getElementById('workers').value);
-        const keyLength = parseInt(document.getElementById('keyLength').value);
-        const alphabetSize = 25; // KRYPTOS alphabet (25 букв)
-        this.totalKeys = Math.pow(alphabetSize, keyLength);
-        
-        this.workers = Array.from({length: workerCount}, (_, i) => {
-            const worker = new Worker(window.workerUrl);
-            worker.onmessage = e => this.handleWorkerMessage(e.data);
+    validateCiphertext(text) {
+        return text.length === 97 && /^[A-Z]+$/.test(text);
+    }
+
+    resetState() {
+        this.keysTested = 0;
+        this.keysPerSecond = 0;
+        this.bestScore = 0;
+        this.bestResult = null;
+        this.elements.topResults.innerHTML = '';
+        this.elements.decryptedText.textContent = '';
+        this.elements.progressBar.style.width = '0%';
+    }
+
+    initWorkers(ciphertext) {
+        const workerCount = parseInt(this.elements.workers.value);
+        const keyLength = parseInt(this.elements.keyLength.value);
+        const knownPlaintext = this.elements.knownPlaintext.value.trim().toUpperCase();
+
+        // Calculate total possible keys (26^keyLength)
+        this.totalKeys = Math.pow(26, keyLength);
+
+        this.workers = [];
+        for (let i = 0; i < workerCount; i++) {
+            const worker = new Worker('worker.js');
+            worker.onmessage = (e) => this.handleWorkerMessage(e.data);
             worker.postMessage({
-                type: 'INIT',
+                type: 'start',
                 ciphertext,
-                alphabet: 'KRYPTOSABCDEFGHIJLMNQUVWXZ',
                 keyLength,
-                workerId: i
+                knownPlaintext,
+                workerId: i,
+                totalWorkers: workerCount
             });
-            return worker;
-        });
+            this.workers.push(worker);
+        }
     }
 
     handleWorkerMessage(data) {
         if (!this.isRunning) return;
 
-        switch(data.type) {
-            case 'PROGRESS':
-                this.keysProcessed += data.keysProcessed;
+        switch (data.type) {
+            case 'progress':
+                this.keysTested += data.keysTested;
+                this.updateKeysPerSecond();
                 break;
-            
-            case 'RESULT':
+
+            case 'result':
                 if (data.score > this.bestScore) {
                     this.bestScore = data.score;
-                    this.currentKey = data.key;
+                    this.bestResult = data;
                     this.displayResult(data);
-                    this.updateLivePreview(data.text);
                 }
                 break;
-            
-            case 'ERROR':
-                this.showError(data.message);
-                this.stop();
+
+            case 'error':
+                console.error('Worker error:', data.message);
                 break;
         }
     }
 
+    updateKeysPerSecond() {
+        const now = performance.now();
+        const elapsedSeconds = (now - this.lastUpdateTime) / 1000;
+        
+        if (elapsedSeconds >= 1) {
+            this.keysPerSecond = Math.round(this.keysTested / (now - this.startTime) * 1000);
+            this.lastUpdateTime = now;
+        }
+    }
+
     displayResult(result) {
+        // Update top results
         const resultElement = document.createElement('div');
-        resultElement.className = 'result-card';
+        resultElement.className = 'result-item';
         resultElement.innerHTML = `
-            <div class="key">KEY: <strong>${result.key}</strong></div>
-            <div class="text">${this.highlightPatterns(result.text)}</div>
-            <div class="stats">
-                <span>Score: ${result.score.toFixed(1)}</span>
-                <span>Entropy: ${result.entropy.toFixed(2)}</span>
-            </div>
+            <div class="result-key">${result.key}</div>
+            <div>${result.plaintext.substring(0, 60)}...</div>
+            <div class="result-score">Score: ${result.score.toFixed(2)}</div>
         `;
-        document.getElementById('topResults').prepend(resultElement);
-    }
+        this.elements.topResults.prepend(resultElement);
 
-    highlightPatterns(text) {
-        const patterns = ['BERLIN', 'CLOCK', 'NORTHEAST'];
-        let highlighted = text;
-        patterns.forEach(pattern => {
-            const regex = new RegExp(`(${pattern})`, 'gi');
-            highlighted = highlighted.replace(regex, '<mark>$1</mark>');
-        });
-        return highlighted;
-    }
-
-    updateLivePreview(text) {
-        const preview = document.getElementById('livePreview');
-        preview.innerHTML = this.highlightPatterns(text);
-        preview.scrollTop = preview.scrollHeight;
+        // Update decrypted text preview
+        this.elements.decryptedText.textContent = result.plaintext;
     }
 
     updateUI() {
         if (!this.isRunning) return;
 
-        const elapsed = (performance.now() - this.startTime) / 1000;
-        const keysPerSec = (this.keysProcessed / elapsed || 0).toFixed(0);
+        // Update elapsed time
+        const elapsedSeconds = (performance.now() - this.startTime) / 1000;
+        this.elements.elapsed.textContent = `${elapsedSeconds.toFixed(1)}s`;
 
-        document.getElementById('elapsed').textContent = `${elapsed.toFixed(1)}s`;
-        document.getElementById('keysPerSec').textContent = keysPerSec;
-        document.getElementById('topScore').textContent = this.bestScore.toFixed(1);
-        document.getElementById('currentKey').textContent = this.currentKey;
-        document.getElementById('progressBar').style.width = 
-            `${Math.min(100, (this.keysProcessed / this.totalKeys) * 100)}%`;
+        // Update keys tested
+        this.elements.keysTested.textContent = this.keysTested.toLocaleString();
+
+        // Update keys per second
+        this.elements.keysPerSec.textContent = this.keysPerSecond.toLocaleString();
+
+        // Update progress bar
+        const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
+        this.elements.progressBar.style.width = `${progressPercent}%`;
 
         requestAnimationFrame(() => this.updateUI());
     }
@@ -138,35 +170,17 @@ class K4Decryptor {
         if (!this.isRunning) return;
 
         this.isRunning = false;
-        clearTimeout(this.timeoutId);
         this.workers.forEach(worker => {
-            worker.postMessage({type: 'TERMINATE'});
             worker.terminate();
         });
         this.workers = [];
-        
-        this.showResultSummary();
-    }
 
-    showResultSummary() {
-        const summary = document.createElement('div');
-        summary.className = 'result-summary';
-        summary.innerHTML = `
-            <h3>🔚 Final Results</h3>
-            <p>Total keys processed: ${this.keysProcessed.toLocaleString()}</p>
-            <p>Best key found: <strong>${this.currentKey}</strong></p>
-            <p>Execution time: ${(performance.now() - this.startTime).toFixed(1)}ms</p>
-        `;
-        document.body.appendChild(summary);
-    }
-
-    showError(message) {
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = `❗ ${message}`;
-        document.body.prepend(errorDiv);
-        setTimeout(() => errorDiv.remove(), 5000);
+        this.elements.startBtn.disabled = false;
+        this.elements.stopBtn.disabled = true;
     }
 }
 
-window.k4 = new K4Decryptor();
+// Initialize the decryptor when the page loads
+window.addEventListener('DOMContentLoaded', () => {
+    window.decryptor = new K4Decryptor();
+});
