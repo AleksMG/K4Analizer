@@ -10,29 +10,34 @@ class K4Decryptor {
         this.bestResult = null;
         this.totalKeys = 0;
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.alphabetShift = 0;
+        this.workerStatus = {};
 
         this.initElements();
         this.initEventListeners();
+        this.updateTotalKeys();
     }
 
     initElements() {
         this.elements = {
             startBtn: document.getElementById('startBtn'),
             stopBtn: document.getElementById('stopBtn'),
-            shuffleAlphabetBtn: document.getElementById('shuffleAlphabetBtn'),
+            shuffleBtn: document.getElementById('shuffleBtn'),
+            resetBtn: document.getElementById('resetBtn'),
             ciphertext: document.getElementById('ciphertext'),
             knownPlaintext: document.getElementById('knownPlaintext'),
             keyLength: document.getElementById('keyLength'),
             workers: document.getElementById('workers'),
             workersValue: document.getElementById('workersValue'),
             alphabet: document.getElementById('alphabet'),
+            alphabetShift: document.getElementById('alphabetShift'),
             elapsed: document.getElementById('elapsed'),
             keysTested: document.getElementById('keysTested'),
             totalKeys: document.getElementById('totalKeys'),
             keysPerSec: document.getElementById('keysPerSec'),
             bestScore: document.getElementById('bestScore'),
+            completion: document.getElementById('completion'),
             progressBar: document.getElementById('progressBar'),
-            progressPercent: document.getElementById('progressPercent'),
             topResults: document.getElementById('topResults'),
             decryptedText: document.getElementById('decryptedText')
         };
@@ -44,18 +49,19 @@ class K4Decryptor {
         this.elements.workers.addEventListener('input', () => {
             this.elements.workersValue.textContent = this.elements.workers.value;
         });
-        this.elements.shuffleAlphabetBtn.addEventListener('click', () => this.shuffleAlphabet());
-        this.elements.alphabet.addEventListener('change', () => this.validateAlphabet());
+        this.elements.shuffleBtn.addEventListener('click', () => this.shuffleAlphabet());
+        this.elements.resetBtn.addEventListener('click', () => this.resetAlphabet());
+        this.elements.keyLength.addEventListener('change', () => this.updateTotalKeys());
+        this.elements.alphabet.addEventListener('input', () => this.validateAlphabet());
+        this.elements.alphabetShift.addEventListener('change', () => this.applyAlphabetShift());
     }
 
     validateAlphabet() {
         let alphabet = this.elements.alphabet.value.toUpperCase();
-        // Remove duplicates
-        alphabet = [...new Set(alphabet.split(''))].join('');
-        // Remove non-letters
-        alphabet = alphabet.replace(/[^A-Z]/g, '');
+        alphabet = [...new Set(alphabet.split(''))].join('').replace(/[^A-Z]/g, '');
         this.elements.alphabet.value = alphabet;
         this.alphabet = alphabet;
+        this.updateTotalKeys();
     }
 
     shuffleAlphabet() {
@@ -68,18 +74,43 @@ class K4Decryptor {
         this.elements.alphabet.value = this.alphabet;
     }
 
+    resetAlphabet() {
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.elements.alphabet.value = this.alphabet;
+        this.elements.alphabetShift.value = 0;
+        this.alphabetShift = 0;
+    }
+
+    applyAlphabetShift() {
+        const shift = parseInt(this.elements.alphabetShift.value);
+        if (isNaN(shift)) return;
+        
+        this.alphabetShift = shift;
+        if (shift === 0) return;
+        
+        const alphabet = this.alphabet;
+        const shifted = alphabet.slice(shift) + alphabet.slice(0, shift);
+        this.alphabet = shifted;
+        this.elements.alphabet.value = shifted;
+    }
+
+    updateTotalKeys() {
+        const keyLength = parseInt(this.elements.keyLength.value);
+        this.totalKeys = Math.pow(this.alphabet.length, keyLength);
+        this.elements.totalKeys.textContent = this.formatLargeNumber(this.totalKeys);
+    }
+
     start() {
         if (this.isRunning) return;
 
         const ciphertext = this.elements.ciphertext.value.trim().toUpperCase();
         if (!this.validateCiphertext(ciphertext)) {
-            alert('Invalid ciphertext! Must be 97 uppercase letters (A-Z)');
+            alert('Invalid ciphertext! Must be exactly 97 uppercase letters (A-Z)');
             return;
         }
 
-        this.validateAlphabet();
         if (this.alphabet.length < 26) {
-            alert('Alphabet must contain at least 26 unique letters');
+            alert(`Alphabet must contain at least 26 unique letters (currently ${this.alphabet.length})`);
             return;
         }
 
@@ -87,8 +118,7 @@ class K4Decryptor {
         this.isRunning = true;
         this.startTime = performance.now();
         this.lastUpdateTime = this.startTime;
-        this.elements.startBtn.disabled = true;
-        this.elements.stopBtn.disabled = false;
+        this.updateButtonStates();
 
         this.initWorkers(ciphertext);
         this.updateUI();
@@ -103,11 +133,19 @@ class K4Decryptor {
         this.keysPerSecond = 0;
         this.bestScore = 0;
         this.bestResult = null;
+        this.workerStatus = {};
         this.elements.topResults.innerHTML = '';
         this.elements.decryptedText.textContent = '';
         this.elements.progressBar.style.width = '0%';
-        this.elements.progressPercent.textContent = '0%';
+        this.elements.completion.textContent = '0%';
         this.elements.bestScore.textContent = '0';
+    }
+
+    updateButtonStates() {
+        this.elements.startBtn.disabled = this.isRunning;
+        this.elements.stopBtn.disabled = !this.isRunning;
+        this.elements.shuffleBtn.disabled = this.isRunning;
+        this.elements.resetBtn.disabled = this.isRunning;
     }
 
     initWorkers(ciphertext) {
@@ -115,14 +153,10 @@ class K4Decryptor {
         const keyLength = parseInt(this.elements.keyLength.value);
         const knownPlaintext = this.elements.knownPlaintext.value.trim().toUpperCase();
 
-        // Calculate total possible keys (alphabetLength^keyLength)
-        this.totalKeys = Math.pow(this.alphabet.length, keyLength);
-        this.elements.totalKeys.textContent = this.formatLargeNumber(this.totalKeys);
-
         this.workers = [];
         for (let i = 0; i < workerCount; i++) {
             const worker = new Worker('worker.js');
-            worker.onmessage = (e) => this.handleWorkerMessage(e.data);
+            worker.onmessage = (e) => this.handleWorkerMessage(e.data, i);
             worker.postMessage({
                 type: 'start',
                 ciphertext,
@@ -133,71 +167,66 @@ class K4Decryptor {
                 totalWorkers: workerCount
             });
             this.workers.push(worker);
+            this.workerStatus[i] = { active: true, keysTested: 0 };
         }
     }
 
-    formatLargeNumber(num) {
-        if (num >= 1000000000) {
-            return (num / 1000000000).toFixed(1) + 'B';
-        }
-        if (num >= 1000000) {
-            return (num / 1000000).toFixed(1) + 'M';
-        }
-        if (num >= 1000) {
-            return (num / 1000).toFixed(1) + 'K';
-        }
-        return num.toString();
-    }
-
-    handleWorkerMessage(data) {
+    handleWorkerMessage(data, workerId) {
         if (!this.isRunning) return;
 
         switch (data.type) {
             case 'progress':
-                this.keysTested += data.keysTested;
-                this.updateKeysPerSecond();
+                this.workerStatus[workerId].keysTested = data.keysTested;
+                this.updateProgress();
                 break;
 
             case 'result':
-                if (data.score > this.bestScore) {
-                    this.bestScore = data.score;
-                    this.bestResult = data;
-                    this.elements.bestScore.textContent = Math.round(data.score);
+                if (data.score > this.bestScore * 0.9) { // Show good candidates
+                    if (data.score > this.bestScore) {
+                        this.bestScore = data.score;
+                        this.bestResult = data;
+                        this.elements.bestScore.textContent = Math.round(data.score);
+                    }
                     this.displayResult(data);
                 }
                 break;
 
             case 'error':
-                console.error('Worker error:', data.message);
+                console.error(`Worker ${workerId} error:`, data.message);
                 this.stop();
-                alert('Worker error: ' + data.message);
+                alert(`Worker error: ${data.message}`);
                 break;
 
             case 'complete':
-                this.keysTested += data.keysTested;
-                this.stop();
+                this.workerStatus[workerId].active = false;
+                if (Object.values(this.workerStatus).every(w => !w.active)) {
+                    this.stop();
+                }
                 break;
         }
     }
 
-    updateKeysPerSecond() {
-        const now = performance.now();
-        const elapsedSeconds = (now - this.lastUpdateTime) / 1000;
+    updateProgress() {
+        this.keysTested = Object.values(this.workerStatus).reduce((sum, w) => sum + w.keysTested, 0);
         
-        if (elapsedSeconds >= 0.5) { // Update more frequently for smoother display
-            this.keysPerSecond = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-            this.lastUpdateTime = now;
-        }
+        // Update keys/sec calculation
+        const now = performance.now();
+        const elapsedSeconds = (now - this.startTime) / 1000;
+        this.keysPerSecond = Math.round(this.keysTested / elapsedSeconds);
+        
+        // Update progress percentage
+        const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
+        this.elements.progressBar.style.width = `${progressPercent}%`;
+        this.elements.completion.textContent = `${progressPercent.toFixed(2)}%`;
     }
 
     displayResult(result) {
-        // Update top results
         const resultElement = document.createElement('div');
         resultElement.className = 'result-item';
         resultElement.innerHTML = `
             <div class="result-key">Key: ${result.key}</div>
-            <div>${result.plaintext.substring(0, 60)}${result.plaintext.length > 60 ? '...' : ''}</div>
-            <div class="result-score">Score: ${Math.round(result.score)}</div>
+            <div>${result.plaintext.substring(0, 80)}${result.plaintext.length > 80 ? '...' : ''}</div>
+            <div class="result-score">Score: ${Math.round(result.score)} (${result.method})</div>
         `;
         this.elements.topResults.prepend(resultElement);
 
@@ -220,15 +249,10 @@ class K4Decryptor {
             : `${elapsedSeconds.toFixed(1)}s`;
 
         // Update keys tested
-        this.elements.keysTested.textContent = this.keysTested.toLocaleString();
+        this.elements.keysTested.textContent = this.formatLargeNumber(this.keysTested);
 
         // Update keys per second
-        this.elements.keysPerSec.textContent = this.keysPerSecond.toLocaleString();
-
-        // Update progress bar and percentage
-        const progressPercent = Math.min(100, (this.keysTested / this.totalKeys) * 100);
-        this.elements.progressBar.style.width = `${progressPercent}%`;
-        this.elements.progressPercent.textContent = `${progressPercent.toFixed(2)}%`;
+        this.elements.keysPerSec.textContent = this.formatLargeNumber(this.keysPerSecond);
 
         requestAnimationFrame(() => this.updateUI());
     }
@@ -237,17 +261,20 @@ class K4Decryptor {
         if (!this.isRunning) return;
 
         this.isRunning = false;
-        this.workers.forEach(worker => {
-            worker.terminate();
-        });
+        this.workers.forEach(worker => worker.terminate());
         this.workers = [];
+        this.updateButtonStates();
+    }
 
-        this.elements.startBtn.disabled = false;
-        this.elements.stopBtn.disabled = true;
+    formatLargeNumber(num) {
+        if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toString();
     }
 }
 
-// Initialize the decryptor when the page loads
-window.addEventListener('DOMContentLoaded', () => {
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', () => {
     window.decryptor = new K4Decryptor();
 });
