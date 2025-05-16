@@ -2,73 +2,113 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Kryptos K4 Professional Analyzer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kryptos K4 Ultimate Decryptor</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
-        <h1>🔐 Kryptos K4 Advanced Decryptor</h1>
-        
-        <div class="control-panel">
-            <div class="input-group">
-                <label>🔒 Full Ciphertext (97 symbols):</label>
-                <textarea id="ciphertext" rows="4">OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPKWGDKZXTJCDIGKUHUAUEKCAR</textarea>
+        <!-- Заголовок -->
+        <header class="header">
+            <h1>🛠️ Kryptos K4 Professional Cracker</h1>
+        </header>
+
+        <!-- Панель управления -->
+        <section class="control-section">
+            <div class="cipher-input">
+                <label for="ciphertext">🔒 Полный шифротекст K4 (97 символов):</label>
+                <textarea 
+                    id="ciphertext" 
+                    rows="5"
+                    spellcheck="false"
+                    placeholder="Вставьте шифротекст здесь..."
+                >OBKRUOXOGHULBSOLIFBBWFLRVQQPRNGKSSOTWTQSJQSSEKZZWATJKLUDIAWINFBNYPVTTMZFPK</textarea>
             </div>
 
-            <div class="advanced-settings">
+            <div class="settings-grid">
+                <!-- Настройки ключа -->
                 <div class="setting">
-                    <label>🔑 Key Length (4-12):</label>
-                    <input type="number" id="keyLength" value="9" min="4" max="12">
+                    <label for="keyLength">🔑 Длина ключа:</label>
+                    <input 
+                        type="number" 
+                        id="keyLength" 
+                        min="4" 
+                        max="12" 
+                        value="9"
+                        class="num-input"
+                    >
                 </div>
+
+                <!-- Настройки воркеров -->
                 <div class="setting">
-                    <label>⚙️ Workers:</label>
-                    <input type="range" id="workers" min="2" max="16" value="8">
-                    <span id="workersValue">8</span>
+                    <label for="workers">⚙️ Количество потоков:</label>
+                    <div class="slider-container">
+                        <input 
+                            type="range" 
+                            id="workers" 
+                            min="2" 
+                            max="16" 
+                            value="8"
+                            class="range-input"
+                        >
+                        <span id="workersValue" class="range-value">8</span>
+                    </div>
                 </div>
             </div>
 
+            <!-- Кнопки управления -->
             <div class="action-buttons">
-                <button id="startBtn">🚀 Start Attack</button>
-                <button id="stopBtn">⏹ Emergency Stop</button>
+                <button id="startBtn" class="btn primary">
+                    🚀 Начать атаку
+                </button>
+                <button id="stopBtn" class="btn danger">
+                    ⚡ Экстренная остановка
+                </button>
             </div>
-        </div>
+        </section>
 
-        <div class="analytics">
-            <div class="real-time-stats">
-                <div class="stat">
-                    <span>⏱ Elapsed:</span>
-                    <span id="elapsed">0s</span>
+        <!-- Статистика в реальном времени -->
+        <section class="stats-section">
+            <div class="metrics">
+                <div class="metric">
+                    <span class="label">⏱ Время:</span>
+                    <span id="elapsedTime" class="value">0:00</span>
                 </div>
-                <div class="stat">
-                    <span>🔑 Keys/Sec:</span>
-                    <span id="keysPerSec">0</span>
+                <div class="metric">
+                    <span class="label">🔑 Ключей/сек:</span>
+                    <span id="keysPerSec" class="value">0</span>
                 </div>
-                <div class="stat">
-                    <span>🏆 Top Score:</span>
-                    <span id="topScore">0</span>
+                <div class="metric">
+                    <span class="label">🏆 Лучший результат:</span>
+                    <span id="bestScore" class="value">0</span>
                 </div>
             </div>
 
-            <div class="visual-progress">
+            <!-- Прогресс-бар -->
+            <div class="progress-container">
                 <div class="progress-labels">
-                    <span>Current Key: <span id="currentKey">-</span></span>
+                    <span>Текущий ключ: <span id="currentKey">-</span></span>
+                    <span>Прогресс: <span id="progressPercent">0%</span></span>
                 </div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="progressBar"></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div class="results-container">
-            <div class="column">
-                <h3>💎 Top Candidates</h3>
-                <div id="topResults" class="results-grid"></div>
+        <!-- Результаты -->
+        <section class="results-section">
+            <div class="results-column">
+                <h3>🏆 Топ-кандидаты</h3>
+                <div id="topResults" class="results-list"></div>
             </div>
-            <div class="column">
-                <h3>🔍 Live Decryption</h3>
-                <div id="livePreview" class="decryption-preview"></div>
+            
+            <div class="results-column">
+                <h3>🔍 Предпросмотр дешифровки</h3>
+                <div id="livePreview" class="preview-box"></div>
             </div>
-        </div>
+        </section>
     </div>
 
     <script src="app.js"></script>
