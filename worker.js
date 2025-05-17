@@ -108,7 +108,7 @@ class K4Worker {
             }
             
             // Original progress reporting (EXACTLY as was)
-            if (this.keysTested % 50000 === 0) {
+            if (this.keysTested % 500000 === 0) {
                 const now = performance.now();
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
