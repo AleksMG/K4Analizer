@@ -8,7 +8,7 @@ const ENGLISH_FREQ = {
 };
 
 const COMMON_PATTERNS = [
-    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
+    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
     'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
@@ -18,7 +18,7 @@ const COMMON_PATTERNS = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256); // ASCII lookup table
         this.running = false;
         this.ciphertext = '';
