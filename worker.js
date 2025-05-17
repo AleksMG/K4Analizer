@@ -19,7 +19,7 @@ const COMMON_PATTERNS = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        this.charMap = new Uint8Array(256);
+        this.charMap = new Uint8Array(256); // ASCII lookup table
         this.running = false;
         
         // Initialize character map
@@ -39,17 +39,6 @@ class K4Worker {
                 this.workerId = msg.workerId || 0;
                 this.totalWorkers = msg.totalWorkers || 1;
                 this.keysTested = 0;
-                
-                // Precompute cipher codes
-                this.cipherCodes = new Uint8Array(this.ciphertext.length);
-                for (let i = 0; i < this.ciphertext.length; i++) {
-                    this.cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
-                }
-                
-                // Precompile regexes
-                this.knownRegex = this.knownPlaintext ? 
-                    new RegExp(this.knownPlaintext, 'gi') : null;
-                this.patternRegexes = COMMON_PATTERNS.map(p => new RegExp(p, 'gi'));
                 break;
                 
             case 'start':
@@ -72,52 +61,46 @@ class K4Worker {
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
         
         let bestScore = 0;
-        let bestKey = '';
+        let bestKey = null;
         let bestText = '';
         
-        // Buffers for optimization
-        const keyBuffer = new Uint8Array(this.keyLength);
-        const plainBuffer = new Uint8Array(this.ciphertext.length);
-        
-        // Main processing loop
+        // Precompute cipher codes
+        const cipherLen = this.ciphertext.length;
+        const cipherCodes = new Uint8Array(cipherLen);
+        for (let i = 0; i < cipherLen; i++) {
+            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+        }
+
+        // Main loop
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            // Generate key
-            let temp = keyNum;
-            for (let i = this.keyLength - 1; i >= 0; i--) {
-                keyBuffer[i] = temp % 26;
-                temp = Math.floor(temp / 26);
-            }
+            const key = this.generateKey(keyNum);
             
-            // Decrypt
-            for (let i = 0; i < this.cipherCodes.length; i++) {
-                plainBuffer[i] = (this.cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
-            }
-            
-            // Convert to string
+            // Decrypt with key applied to EVERY character
             let plaintext = '';
-            for (let i = 0; i < plainBuffer.length; i++) {
-                plaintext += String.fromCharCode(plainBuffer[i] + 65);
+            for (let i = 0; i < cipherLen; i++) {
+                const cipherPos = cipherCodes[i];
+                const keyPos = this.charMap[key.charCodeAt(i % this.keyLength)];
+                plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
             }
             
-            // Score text
+            // Score and track best result
             const score = this.scoreText(plaintext);
-            
             this.keysTested++;
             
             if (score > bestScore) {
                 bestScore = score;
-                bestKey = this.bufferToKey(keyBuffer);
+                bestKey = key;
                 bestText = plaintext;
                 self.postMessage({
                     type: 'result',
-                    key: bestKey,
-                    plaintext: bestText,
+                    key,
+                    plaintext,
                     score
                 });
             }
             
-            // Report progress every 100k keys
-            if (this.keysTested % 100000 === 0) {
+            // Progress report
+            if (this.keysTested % 50000 === 0) {
                 const now = performance.now();
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
@@ -133,10 +116,11 @@ class K4Worker {
         }
     }
 
-    bufferToKey(buffer) {
+    generateKey(num) {
         let key = '';
-        for (let i = 0; i < buffer.length; i++) {
-            key += String.fromCharCode(buffer[i] + 65);
+        for (let i = 0; i < this.keyLength; i++) {
+            key = this.alphabet[num % 26] + key;
+            num = Math.floor(num / 26);
         }
         return key;
     }
@@ -145,7 +129,7 @@ class K4Worker {
         let score = 0;
         
         // 1. Known plaintext check
-        if (this.knownRegex && this.knownRegex.test(text)) {
+        if (this.knownPlaintext && text.includes(this.knownPlaintext)) {
             score += 1000 * this.knownPlaintext.length;
         }
         
@@ -170,36 +154,12 @@ class K4Worker {
         }
         
         // 3. Common patterns
-        for (let i = 0; i < this.patternRegexes.length; i++) {
-            const regex = this.patternRegexes[i];
-            let matches = 0;
-            regex.lastIndex = 0;
-            
-            while (regex.test(text)) {
-                matches++;
-            }
-            
-            if (matches > 0) {
-                score += COMMON_PATTERNS[i].length * 25 * matches;
+        for (const pattern of COMMON_PATTERNS) {
+            let pos = -1;
+            while ((pos = text.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 25;
             }
         }
-        
-        // 4. Spaces bonus
-        let spaceCount = 0;
-        for (let i = 0; i < text.length; i++) {
-            if (text.charCodeAt(i) === 32) spaceCount++;
-        }
-        score += spaceCount * 15;
-        
-        // 5. Penalty for invalid chars
-        let invalidChars = 0;
-        for (let i = 0; i < text.length; i++) {
-            const code = text.charCodeAt(i);
-            if (!((code >= 65 && code <= 90) || code === 32)) {
-                invalidChars++;
-            }
-        }
-        score -= invalidChars * 10;
         
         return Math.max(0, Math.round(score));
     }
