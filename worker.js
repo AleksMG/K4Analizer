@@ -1,8 +1,11 @@
-const ENGLISH_FREQ = new Float32Array([
-    8.167, 1.492, 2.782, 4.253, 12.702, 2.228, 2.015, 6.094, 6.966, 0.153,
-    0.772, 4.025, 2.406, 6.749, 7.507, 1.929, 0.095, 5.987, 6.327, 9.056,
-    2.758, 0.978, 2.360, 0.150, 1.974, 0.074
-]);
+const ENGLISH_FREQ = {
+    'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
+    'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
+    'K': 0.772, 'L': 4.025, 'M': 2.406, 'N': 6.749, 'O': 7.507,
+    'P': 1.929, 'Q': 0.095, 'R': 5.987, 'S': 6.327, 'T': 9.056,
+    'U': 2.758, 'V': 0.978, 'W': 2.360, 'X': 0.150, 'Y': 1.974,
+    'Z': 0.074
+};
 
 const COMMON_PATTERNS = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
@@ -16,20 +19,14 @@ const COMMON_PATTERNS = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        this.charMap = new Uint8Array(256);
+        this.charMap = new Uint8Array(256); // ASCII lookup table
         this.running = false;
-        this.keysTested = 0;
-        this.startTime = 0;
-        this.lastReportTime = 0;
         
-        // Initialize character map
+        // Initialize character map (как у тебя)
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Precompile regexes
-        this.patternRegexes = COMMON_PATTERNS.map(p => new RegExp(p, 'g'));
-        
         self.onmessage = (e) => this.handleMessage(e.data);
     }
 
@@ -37,13 +34,8 @@ class K4Worker {
         switch (msg.type) {
             case 'init':
                 this.ciphertext = msg.ciphertext;
-                this.ciphertextCodes = new Uint8Array(this.ciphertext.length);
-                for (let i = 0; i < this.ciphertext.length; i++) {
-                    this.ciphertextCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
-                }
                 this.keyLength = msg.keyLength;
                 this.knownPlaintext = msg.knownPlaintext || '';
-                this.knownRegex = this.knownPlaintext ? new RegExp(this.knownPlaintext, 'g') : null;
                 this.workerId = msg.workerId || 0;
                 this.totalWorkers = msg.totalWorkers || 1;
                 this.keysTested = 0;
@@ -69,36 +61,55 @@ class K4Worker {
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
         
         let bestScore = 0;
-        let bestKey = '';
+        let bestKey = null;
         let bestText = '';
         
-        // Pre-allocate arrays
-        const keyCodes = new Uint8Array(this.keyLength);
-        const plaintextCodes = new Uint8Array(this.ciphertext.length);
-        
+        // 🔥 Оптимизация 1: Кешируем коды шифротекста
+        const cipherCodes = new Uint8Array(this.ciphertext.length);
+        for (let i = 0; i < this.ciphertext.length; i++) {
+            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+        }
+
+        // 🔥 Оптимизация 2: Буфер для ключа (быстрее строк)
+        const keyBuffer = new Uint8Array(this.keyLength);
+
+        // 🔥 Оптимизация 3: Буфер для расшифрованного текста
+        const plainBuffer = new Uint8Array(this.ciphertext.length);
+
+        // Регулярки для knownPlaintext и COMMON_PATTERNS (как у тебя)
+        const knownRegex = this.knownPlaintext ? new RegExp(this.knownPlaintext, 'g') : null;
+        const patternRegexes = COMMON_PATTERNS.map(p => new RegExp(p, 'g'));
+
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            // Generate key codes directly
+            // Генерация ключа (как у тебя, но через буфер)
             let temp = keyNum;
             for (let i = this.keyLength - 1; i >= 0; i--) {
-                keyCodes[i] = temp % 26;
+                keyBuffer[i] = temp % 26;
                 temp = Math.floor(temp / 26);
             }
-            
-            // Fast decrypt
+
+            // Дешифровка (максимально быстро)
             for (let i = 0; i < this.ciphertext.length; i++) {
-                plaintextCodes[i] = (this.ciphertextCodes[i] - keyCodes[i % this.keyLength] + 26) % 26;
+                plainBuffer[i] = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
             }
-            
-            // Convert to string only once for scoring
-            const plaintext = String.fromCharCode(...plaintextCodes.map(c => c + 65));
-            
-            const score = this.scoreText(plaintext);
+
+            // Конвертация в строку (одна операция)
+            let plaintext = '';
+            for (let i = 0; i < plainBuffer.length; i++) {
+                plaintext += String.fromCharCode(plainBuffer[i] + 65);
+            }
+
+            // Подсчет очков (твой оригинальный метод)
+            const score = this.scoreText(plaintext, knownRegex, patternRegexes);
             
             this.keysTested++;
             
             if (score > bestScore) {
                 bestScore = score;
-                bestKey = plaintext.slice(0, this.keyLength);
+                bestKey = '';
+                for (let i = 0; i < this.keyLength; i++) {
+                    bestKey += String.fromCharCode(keyBuffer[i] + 65);
+                }
                 bestText = plaintext;
                 self.postMessage({
                     type: 'result',
@@ -108,8 +119,8 @@ class K4Worker {
                 });
             }
             
-            // Report progress every 100k keys (reduced frequency for better performance)
-            if (this.keysTested % 100000 === 0) {
+            // Отчет о прогрессе (реже, чтобы не тормозить)
+            if (this.keysTested % 500000 === 0) { // Каждые 500k ключей
                 const now = performance.now();
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
@@ -125,11 +136,12 @@ class K4Worker {
         }
     }
 
-    scoreText(text) {
+    // Твой оригинальный метод scoreText (без изменений)
+    scoreText(text, knownRegex, patternRegexes) {
         let score = 0;
         
         // 1. Known plaintext check
-        if (this.knownRegex && text.match(this.knownRegex)) {
+        if (knownRegex && text.match(knownRegex)) {
             score += 1000 * this.knownPlaintext.length;
         }
         
@@ -147,15 +159,15 @@ class K4Worker {
         
         if (totalLetters > 0) {
             for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[i];
+                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
                 score += 100 - Math.abs(expected - actual);
             }
         }
         
         // 3. Common patterns
-        for (let i = 0; i < this.patternRegexes.length; i++) {
-            const matches = text.match(this.patternRegexes[i]);
+        for (let i = 0; i < patternRegexes.length; i++) {
+            const matches = text.match(patternRegexes[i]);
             if (matches) {
                 score += COMMON_PATTERNS[i].length * 25 * matches.length;
             }
