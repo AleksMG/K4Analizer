@@ -9,7 +9,7 @@ class K4Decryptor {
         this.bestScore = 0;
         this.bestResult = null;
         this.totalKeys = 0;
-        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.alphabet = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
         this.alphabetShift = 0;
         this.workerStatus = {};
         this.lastProgressUpdate = 0;
