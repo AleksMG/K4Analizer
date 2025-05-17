@@ -7,19 +7,27 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-const COMMON_PATTERNS = [
+// Предварительные вычисления для оптимизации
+const ENGLISH_FREQ_ARRAY = new Float32Array(Object.values(ENGLISH_FREQ));
+const COMMON_REGEX = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
     'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
     'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
     'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
-];
+].map(p => new RegExp(p, 'g'));
+
+// Предрасчитанная таблица модуля 26
+const MOD26 = new Int8Array(512);
+for (let i = 0; i < MOD26.length; i++) {
+    MOD26[i] = (i % 26 + 26) % 26;
+}
 
 class K4Worker {
     constructor() {
         this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        this.charMap = new Uint8Array(256); // ASCII lookup table
+        this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
@@ -30,9 +38,10 @@ class K4Worker {
         this.startTime = 0;
         this.lastReportTime = 0;
         
-        // Initialize character map (original code preserved)
-        for (let i = 0; i < this.alphabet.length; i++) {
-            this.charMap[this.alphabet.charCodeAt(i)] = i;
+        // Инициализация charMap (оптимизировано)
+        const A = 'A'.charCodeAt(0);
+        for (let i = 0; i < 26; i++) {
+            this.charMap[A + i] = i;
         }
 
         self.onmessage = (e) => this.handleMessage(e.data);
@@ -41,11 +50,7 @@ class K4Worker {
     handleMessage(msg) {
         switch (msg.type) {
             case 'init':
-                this.ciphertext = msg.ciphertext;
-                this.keyLength = msg.keyLength;
-                this.knownPlaintext = msg.knownPlaintext || '';
-                this.workerId = msg.workerId || 0;
-                this.totalWorkers = msg.totalWorkers || 1;
+                Object.assign(this, msg);
                 this.keysTested = 0;
                 break;
                 
@@ -63,60 +68,48 @@ class K4Worker {
     }
 
     bruteForce() {
-        const totalKeys = Math.pow(26, this.keyLength);
+        const totalKeys = 26 ** this.keyLength;
         const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
+        const cipherLen = this.ciphertext.length;
+        const cipherCodes = this.precomputeCipher();
+        const keyBuffer = new Uint8Array(this.keyLength);
+        const plainCodes = new Uint8Array(cipherLen);
+        const checkKnown = this.knownPlaintext.length > 0;
+        const knownPattern = checkKnown ? new RegExp(this.knownPlaintext) : null;
         
         let bestScore = 0;
-        let bestKey = null;
-        let bestText = '';
-        
-        // Precompute cipher codes (optimization added)
-        const cipherLen = this.ciphertext.length;
-        const cipherCodes = new Uint8Array(cipherLen);
-        for (let i = 0; i < cipherLen; i++) {
-            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
-        }
+        let bestKey = '';
+        const CHUNK_SIZE = 100000;
+        let currentKey = startKey;
 
-        // Main brute-force loop (fully preserved)
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            const key = this.generateKey(keyNum);
+        while (this.running && currentKey < endKey) {
+            const chunkEnd = Math.min(currentKey + CHUNK_SIZE, endKey);
             
-            // Original decryption logic (EXACTLY as was)
-            let plaintext = '';
-            for (let i = 0; i < cipherLen; i++) {
-                const cipherPos = cipherCodes[i];
-                const keyPos = this.charMap[key.charCodeAt(i % this.keyLength)];
-                plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
+            for (let keyNum = currentKey; keyNum < chunkEnd; keyNum++) {
+                const key = this.generateKeyOptimized(keyNum, keyBuffer);
+                this.decryptOptimized(cipherCodes, key, plainCodes);
+                
+                const plaintext = String.fromCharCode(...plainCodes);
+                const score = this.scoreOptimized(plaintext, checkKnown, knownPattern);
+                
+                this.keysTested++;
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestKey = key;
+                    self.postMessage({
+                        type: 'result',
+                        key,
+                        plaintext,
+                        score
+                    });
+                }
             }
             
-            // Original scoring (EXACTLY as was)
-            const score = this.scoreText(plaintext);
-            this.keysTested++;
-            
-            if (score > bestScore) {
-                bestScore = score;
-                bestKey = key;
-                bestText = plaintext;
-                self.postMessage({
-                    type: 'result',
-                    key,
-                    plaintext,
-                    score
-                });
-            }
-            
-            // Original progress reporting (EXACTLY as was)
-            if (this.keysTested % 500000 === 0) {
-                const now = performance.now();
-                const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                self.postMessage({
-                    type: 'progress',
-                    keysTested: this.keysTested,
-                    kps
-                });
-            }
+            this.reportProgressIfNeeded();
+            currentKey = chunkEnd;
         }
         
         if (this.running) {
@@ -124,56 +117,91 @@ class K4Worker {
         }
     }
 
-    generateKey(num) {
-        // Original key generation (EXACTLY as was)
-        let key = '';
-        for (let i = 0; i < this.keyLength; i++) {
-            key = this.alphabet[num % 26] + key;
-            num = Math.floor(num / 26);
+    precomputeCipher() {
+        const cipherCodes = new Uint8Array(this.ciphertext.length);
+        const A = 'A'.charCodeAt(0);
+        for (let i = 0; i < this.ciphertext.length; i++) {
+            cipherCodes[i] = this.ciphertext.charCodeAt(i) - A;
         }
-        return key;
+        return cipherCodes;
     }
 
-    scoreText(text) {
-        // Original scoring (EXACTLY as was)
-        let score = 0;
-        
-        // 1. Known plaintext check
-        if (this.knownPlaintext && text.includes(this.knownPlaintext)) {
-            score += 1000 * this.knownPlaintext.length;
+    generateKeyOptimized(num, buffer) {
+        let remaining = num;
+        for (let i = this.keyLength - 1; i >= 0; i--) {
+            buffer[i] = remaining % 26;
+            remaining = Math.floor(remaining / 26);
+        }
+        return String.fromCharCode(...buffer.map(c => c + 65));
+    }
+
+    decryptOptimized(cipherCodes, key, plainCodes) {
+        const keyCodes = new Uint8Array(key.length);
+        const A = 'A'.charCodeAt(0);
+        for (let i = 0; i < key.length; i++) {
+            keyCodes[i] = key.charCodeAt(i) - A;
         }
         
-        // 2. Frequency analysis
+        const keyLen = key.length;
+        for (let i = 0; i < cipherCodes.length; i++) {
+            plainCodes[i] = MOD26[cipherCodes[i] - keyCodes[i % keyLen] + 26];
+        }
+        
+        for (let i = 0; i < plainCodes.length; i++) {
+            plainCodes[i] += 65;
+        }
+    }
+
+    scoreOptimized(text, checkKnown, knownPattern) {
+        if (checkKnown && !knownPattern.test(text)) return 0;
+        
+        let score = 0;
         const freq = new Uint16Array(26);
         let totalLetters = 0;
+        const len = text.length;
         
-        for (let i = 0; i < text.length; i++) {
-            const code = text.charCodeAt(i);
-            if (code >= 65 && code <= 90) {
-                freq[code - 65]++;
-                totalLetters++;
-            }
+        // Частотный анализ
+        for (let i = 0; i < len; i++) {
+            const code = text.charCodeAt(i) - 65;
+            if (code < 0 || code > 25) continue;
+            freq[code]++;
+            totalLetters++;
         }
         
         if (totalLetters > 0) {
+            const multiplier = 100 / totalLetters;
             for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
-                const actual = (freq[i] / totalLetters) * 100;
-                score += 100 - Math.abs(expected - actual);
+                score += 100 - Math.abs(ENGLISH_FREQ_ARRAY[i] - freq[i] * multiplier);
             }
         }
         
-        // 3. Common patterns
-        for (const pattern of COMMON_PATTERNS) {
-            let pos = -1;
-            while ((pos = text.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 25;
-            }
+        // Проверка паттернов
+        for (const re of COMMON_REGEX) {
+            re.lastIndex = 0;
+            let count = 0;
+            while (re.test(text)) count++;
+            score += count * re.source.length * 25;
         }
         
-        return Math.max(0, Math.round(score));
+        if (checkKnown) {
+            score += 1000 * this.knownPlaintext.length;
+        }
+        
+        return score | 0;
+    }
+
+    reportProgressIfNeeded() {
+        const now = performance.now();
+        if (now - this.lastReportTime > 1000) {
+            this.lastReportTime = now;
+            const kps = (this.keysTested / ((now - this.startTime) / 1000)) | 0;
+            self.postMessage({
+                type: 'progress',
+                keysTested: this.keysTested,
+                kps
+            });
+        }
     }
 }
 
-// Original worker initialization (EXACTLY as was)
 new K4Worker();
