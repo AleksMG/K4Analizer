@@ -21,16 +21,16 @@ class K4Decryptor {
             'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
             'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
             'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
-            'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'DIRECTION', 'LATITUDE',
-            'LONGITUDE', 'COORDINATE', 'GOVERNMENT', 'WALL', 'UNDERGROUND'
+            'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
+            'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
         ];
 
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
         this.batchResults = [];               // Буфер для пакетной обработки
         this.lastScoreUpdate = 0;             // Время последнего обновления
-        this.scoreUpdateInterval = 500;       // Интервал обновления (мс)
-        this.batchSize = 10000;                // Размер пачки
+        this.scoreUpdateInterval = 5000;       // Интервал обновления (мс)
+        this.batchSize = 50000;                // Размер пачки
 
         this.initElements();
         this.initEventListeners();
