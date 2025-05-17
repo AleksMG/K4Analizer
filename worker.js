@@ -18,7 +18,7 @@ const COMMON_PATTERNS = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.alphabet = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
         this.charMap = new Uint8Array(256); // ASCII lookup table
         this.running = false;
         this.ciphertext = '';
