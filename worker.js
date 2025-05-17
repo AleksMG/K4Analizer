@@ -167,7 +167,7 @@ class K4Worker {
         for (const pattern of COMMON_PATTERNS) {
             let pos = -1;
             while ((pos = text.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 25;
+                score += pattern.length * 26;
             }
         }
         
