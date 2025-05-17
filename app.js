@@ -9,7 +9,7 @@ class K4Decryptor {
         this.bestScore = 0;
         this.bestResult = null;
         this.totalKeys = 0;
-        this.alphabet = 'KRYPTOSABCDEFGHIJLMNQUVWXZ';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.alphabetShift = 0;
         this.workerStatus = {};
         this.lastProgressUpdate = 0;
@@ -17,7 +17,7 @@ class K4Decryptor {
         this.resultsCache = new Set();
         this.knownWords = [];
         this.commonPatterns = [
-            'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'BUT',
+            'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
             'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
             'WHICH', 'WHEN', 'YOUR', 'WERE', 'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
             'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
@@ -29,8 +29,8 @@ class K4Decryptor {
         this.scoreCache = new Map();          // Кеш результатов оценки
         this.batchResults = [];               // Буфер для пакетной обработки
         this.lastScoreUpdate = 0;             // Время последнего обновления
-        this.scoreUpdateInterval = 5000;       // Интервал обновления (мс)
-        this.batchSize = 50000;                // Размер пачки
+        this.scoreUpdateInterval = 2000;       // Интервал обновления (мс)
+        this.batchSize = 20000;                // Размер пачки
 
         this.initElements();
         this.initEventListeners();
