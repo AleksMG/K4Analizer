@@ -21,15 +21,14 @@ class K4Worker {
         this.totalWorkers = 1;
         this.keysTested = 0;
         this.startTime = 0;
-        this.lastReportTime = 0;
 
-        // Инициализация charMap (оптимизированная)
+        // Инициализация charMap (быстрая)
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Предрасчёт частот для быстрого доступа
+        // Предрасчёт частот (оптимизированный)
         this.englishFreqArray = new Float32Array(26);
         for (let i = 0; i < 26; i++) {
             this.englishFreqArray[i] = ENGLISH_FREQ[this.alphabet[i]] || 0;
@@ -90,14 +89,14 @@ class K4Worker {
                 num = Math.floor(num / 26);
             }
 
-            // Расшифровка + частотный анализ (оптимизированный)
+            // Расшифровка (оптимизированная)
             freq.fill(0);
             for (let i = 0; i < cipherLen; i++) {
                 plainBuffer[i] = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
                 freq[plainBuffer[i]]++;
             }
 
-            // Быстрый подсчёт score
+            // Быстрый подсчёт score (без лишних операций)
             let score = 0;
             const totalLetters = cipherLen;
             const freqNormalizer = 100 / totalLetters;
@@ -110,16 +109,12 @@ class K4Worker {
             // Преобразуем в строку (1 раз за ключ)
             const plainText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('').toUpperCase();
 
-            // Проверка паттернов (быстрая, через String.includes)
+            // Проверка паттернов (быстрая, через includes)
             for (const pattern of commonPatterns) {
-                if (plainText.includes(pattern)) {
-                    score += pattern.length * 25;
-                }
+                if (plainText.includes(pattern)) score += pattern.length * 25;
             }
             for (const pattern of uncommonPatterns) {
-                if (plainText.includes(pattern)) {
-                    score += pattern.length * 50;
-                }
+                if (plainText.includes(pattern)) score += pattern.length * 50;
             }
 
             score = Math.round(score);
@@ -138,18 +133,15 @@ class K4Worker {
                 });
             }
 
-            // Отчёт о прогрессе (раз в секунду)
+            // Отчёт о прогрессе (раз в 100k ключей)
             if (this.keysTested % 100000 === 0) {
                 const now = performance.now();
-                if (now - this.lastReportTime > 1000) {
-                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                    self.postMessage({
-                        type: 'progress',
-                        keysTested: this.keysTested,
-                        kps
-                    });
-                    this.lastReportTime = now;
-                }
+                const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                self.postMessage({
+                    type: 'progress',
+                    keysTested: this.keysTested,
+                    kps
+                });
             }
         }
 
