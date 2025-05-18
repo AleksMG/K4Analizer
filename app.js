@@ -327,6 +327,18 @@ this.uncommonPatterns = [
             }
         }
 
+        for (const pattern of this.uncommonPatterns) {
+            const regex = new RegExp(pattern, 'g');
+            const matches = text.match(regex);
+            if (matches) {
+                foundWords.push({
+                    word: pattern,
+                    score: 50 * pattern.length * matches.length,
+                    isKnown: false
+                });
+            }
+        }
+    
         return foundWords.sort((a, b) => b.word.length - a.word.length);
     }
 
