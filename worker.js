@@ -33,9 +33,10 @@ class K4Worker {
         this.keysTested = 0;
         this.startTime = 0;
         this.lastReportTime = 0;
+        this.lastKeysTested = 0;
         
-        // Инициализация charMap с защитой от неопределенных символов
-        this.charMap.fill(255); // Устанавливаем недопустимое значение по умолчанию
+        // Инициализация charMap
+        this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
@@ -86,11 +87,14 @@ class K4Worker {
         }
 
         // Главный цикл перебора ключей
+        const batchSize = 10000; // Размер батча для отчетов
+        let batchCount = 0;
+        
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
             const key = this.generateKey(keyNum);
-            
-            // Расшифровка
             let plaintext = '';
+            
+            // Быстрая расшифровка
             for (let i = 0; i < cipherLen; i++) {
                 const cipherPos = cipherCodes[i];
                 const keyPos = this.charMap[key.charCodeAt(i % this.keyLength)];
@@ -100,6 +104,7 @@ class K4Worker {
             // Оценка текста
             const score = this.scoreText(plaintext);
             this.keysTested++;
+            batchCount++;
             
             if (score > bestScore) {
                 bestScore = score;
@@ -113,23 +118,35 @@ class K4Worker {
                 });
             }
             
-            // Отчет о прогрессе
-            if (this.keysTested % 100000 === 0) {
-                const now = performance.now();
-                if (now - this.lastReportTime > 5000) { // Не чаще 1 раза в секунду
-                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                    self.postMessage({
-                        type: 'progress',
-                        keysTested: this.keysTested,
-                        kps
-                    });
-                    this.lastReportTime = now;
-                }
+            // Отчет о прогрессе каждые batchSize ключей или каждую секунду
+            const now = performance.now();
+            if (batchCount >= batchSize || now - this.lastReportTime >= 1000) {
+                const elapsed = (now - this.startTime) / 1000;
+                const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
+                
+                self.postMessage({
+                    type: 'progress',
+                    keysTested: this.keysTested,
+                    kps,
+                    percent: ((keyNum - startKey) / (endKey - startKey)) * 100
+                });
+                
+                this.lastReportTime = now;
+                batchCount = 0;
             }
-            
-            // Проверка флага остановки между итерациями
-            if (this.keysTested % 50000 === 0 && !this.running) break;
         }
+        
+        // Финальный отчет
+        const now = performance.now();
+        const elapsed = (now - this.startTime) / 1000;
+        const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
+        
+        self.postMessage({
+            type: 'progress',
+            keysTested: this.keysTested,
+            kps,
+            percent: 100
+        });
         
         if (this.running) {
             self.postMessage({ type: 'complete' });
@@ -150,11 +167,8 @@ class K4Worker {
         const upperText = text.toUpperCase();
         
         // 1. Проверка известного открытого текста
-        if (this.knownPlaintext) {
-            const knownUpper = this.knownPlaintext.toUpperCase();
-            if (upperText.includes(knownUpper)) {
-                score += 1000 * knownUpper.length;
-            }
+        if (this.knownPlaintext && upperText.includes(this.knownPlaintext)) {
+            score += 1000 * this.knownPlaintext.length;
         }
         
         // 2. Частотный анализ
@@ -177,7 +191,7 @@ class K4Worker {
             }
         }
         
-        // 3. Поиск общих паттернов
+        // 3. Поиск паттернов
         for (const pattern of commonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
@@ -185,7 +199,6 @@ class K4Worker {
             }
         }
         
-        // 4. Поиск специальных паттернов (с большим весом)
         for (const pattern of uncommonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
