@@ -22,7 +22,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -34,16 +34,14 @@ class K4Worker {
         this.lastReportTime = 0;
         this.bestScore = 0;
         this.bestKey = '';
-        this.knownPlaintext = ''; // Для интеграции с вашим полем ввода
-        this.foundPriorityMatch = false; // Флаг найденного приоритетного совпадения
+        this.requiredPhrase = 'BERLINCLOCK'; // Жестко заданная фраза для поиска
+        this.foundRequired = false;
 
-        // Инициализация charMap
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Оригинальный обработчик сообщений с добавлением knownPlaintext
         self.onmessage = (e) => {
             const msg = e.data;
             switch (msg.type) {
@@ -60,28 +58,17 @@ class K4Worker {
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
-                        this.foundPriorityMatch = false;
-                        this.runPrioritizedSearch();
+                        this.foundRequired = false;
+                        this.runSearch();
                     }
                     break;
                 case 'stop':
                     this.running = false;
                     break;
-                case 'setPlaintext':
-                    this.knownPlaintext = msg.text.toUpperCase();
-                    break;
-                case 'updateAlphabet':
-                    this.alphabet = msg.alphabet;
-                    this.charMap.fill(255);
-                    for (let i = 0; i < this.alphabet.length; i++) {
-                        this.charMap[this.alphabet.charCodeAt(i)] = i;
-                    }
-                    break;
             }
         };
     }
 
-    // Полностью сохраненные оригинальные методы
     generateKey(num) {
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
@@ -140,46 +127,46 @@ class K4Worker {
         return Math.round(score);
     }
 
-    // Новый метод для приоритетного поиска
-    async runPrioritizedSearch() {
-        // 1. Сначала ищем точное совпадение с knownPlaintext
-        if (this.knownPlaintext) {
-            await this.searchExactMatch();
-            if (this.foundPriorityMatch) return;
-        }
-
-        // 2. Затем продолжаем обычный bruteforce
-        await this.runStandardBruteforce();
-    }
-
-    async searchExactMatch() {
-        const target = this.knownPlaintext;
-        const targetLength = target.length;
-        const cipherLength = this.ciphertext.length;
-        const maxAttempts = 1000000;
-
-        for (let i = 0; i < maxAttempts && this.running && !this.foundPriorityMatch; i++) {
-            const key = this.generateKey(Math.floor(Math.random() * Math.pow(26, this.keyLength)));
-            const decrypted = this.decrypt(key);
-
-            if (decrypted.includes(target)) {
-                const score = 1000 + this.scoreText(decrypted); // Максимальный приоритет
-                this.updateBestKey(key, score, decrypted);
-                this.foundPriorityMatch = true;
-                break;
-            }
-
-            if (i % 1000 === 0) await new Promise(r => setTimeout(r, 0));
+    async runSearch() {
+        // Этап 1: Поиск точного совпадения с BERLINCLOCK
+        await this.findRequiredPhrase();
+        
+        // Этап 2: Обычный bruteforce с оценкой паттернов
+        if (this.running) {
+            await this.runBruteforce();
         }
     }
 
-    async runStandardBruteforce() {
+    async findRequiredPhrase() {
         const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
 
-        for (let keyNum = startKey; keyNum < endKey && this.running && !this.foundPriorityMatch; keyNum++) {
+        for (let keyNum = startKey; keyNum < endKey && this.running && !this.foundRequired; keyNum++) {
+            const key = this.generateKey(keyNum);
+            const plaintext = this.decrypt(key);
+
+            if (plaintext.includes(this.requiredPhrase)) {
+                this.foundRequired = true;
+                const score = this.scoreText(plaintext);
+                this.updateBestKey(key, score, plaintext);
+                break;
+            }
+
+            if (keyNum % 1000 === 0) {
+                await this.reportProgress();
+            }
+        }
+    }
+
+    async runBruteforce() {
+        const totalKeys = Math.pow(26, this.keyLength);
+        const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
+        const startKey = this.workerId * keysPerWorker;
+        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
+
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
             const key = this.generateKey(keyNum);
             const plaintext = this.decrypt(key);
             const score = this.scoreText(plaintext);
@@ -188,7 +175,6 @@ class K4Worker {
                 this.updateBestKey(key, score, plaintext);
             }
 
-            // Отчет о прогрессе
             if (keyNum % 1000 === 0) {
                 await this.reportProgress();
             }
@@ -203,12 +189,11 @@ class K4Worker {
             self.postMessage({
                 type: 'progress',
                 keysTested: this.keysTested,
-                kps: kps,
-                bestScore: this.bestScore
+                kps: kps
             });
             this.lastReportTime = now;
         }
-        await new Promise(r => setTimeout(r, 0));
+        await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     updateBestKey(key, score, plaintext) {
