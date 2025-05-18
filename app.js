@@ -19,12 +19,12 @@ class K4Decryptor {
 this.commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
-    'WHICH', 'WHEN', 'YOUR', 'WERE'
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'
 ];
 this.uncommonPatterns = [
     'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
     'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
-    'MESSAGE', 'KRYPTOS', 'CIA', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
+    'MESSAGE', 'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
     'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
