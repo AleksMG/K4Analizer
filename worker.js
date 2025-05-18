@@ -7,149 +7,140 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-const commonPatterns = ['THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY', 'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT', 'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'];
-const uncommonPatterns = ['BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST', 'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE', 'MESSAGE', 'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'];
+const commonPatterns = [
+    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
+    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'
+];
+
+const uncommonPatterns = [
+    'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
+    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
+    'MESSAGE', 'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
+    'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
+];
 
 class K4Worker {
     constructor() {
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
+        this.running = false;
+        this.ciphertext = '';
+        this.keyLength = 0;
+        this.workerId = 0;
+        this.totalWorkers = 1;
+        this.keysTested = 0;
+        this.startTime = 0;
+        this.lastReportTime = 0;
+        this.bestScore = 0;
+
+        // Инициализация charMap
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        this.running = false;
-        this.keysTested = 0;
-        this.startTime = 0;
-        this.bestScore = 0;
-
-        self.onmessage = (e) => this.handleMessage(e.data);
+        self.onmessage = (e) => {
+            const msg = e.data;
+            switch (msg.type) {
+                case 'init':
+                    this.ciphertext = msg.ciphertext;
+                    this.keyLength = msg.keyLength;
+                    this.workerId = msg.workerId || 0;
+                    this.totalWorkers = msg.totalWorkers || 1;
+                    this.keysTested = 0;
+                    this.bestScore = 0;
+                    break;
+                case 'start':
+                    if (!this.running) {
+                        this.running = true;
+                        this.startTime = performance.now();
+                        this.bruteForce();
+                    }
+                    break;
+                case 'stop':
+                    this.running = false;
+                    break;
+            }
+        };
     }
 
-    handleMessage(msg) {
-        switch (msg.type) {
-            case 'init':
-                Object.assign(this, {
-                    ciphertext: msg.ciphertext,
-                    keyLength: msg.keyLength,
-                    workerId: msg.workerId || 0,
-                    totalWorkers: msg.totalWorkers || 1
-                });
-                break;
-            case 'start':
-                if (!this.running) {
-                    this.running = true;
-                    this.startTime = performance.now();
-                    this.bruteForceOptimized();
-                }
-                break;
-            case 'stop':
-                this.running = false;
-                break;
+    generateKey(num) {
+        const key = new Array(this.keyLength);
+        for (let i = this.keyLength - 1; i >= 0; i--) {
+            key[i] = this.alphabet[num % 26];
+            num = Math.floor(num / 26);
         }
+        return key.join('');
     }
 
-    bruteForceOptimized() {
-        const cipherCodes = new Uint8Array(this.ciphertext.length);
-        for (let i = 0; i < this.ciphertext.length; i++) {
-            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
-        }
-
-        const totalKeys = this.keyLength <= 10 
-            ? Math.pow(26, this.keyLength)
-            : Infinity; // Для ключей >10 символов - особый режим
-
+    bruteForce() {
+        const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = (this.workerId === this.totalWorkers - 1) 
             ? totalKeys 
             : startKey + keysPerWorker;
 
+        const cipherLen = this.ciphertext.length;
+        const cipherCodes = new Uint8Array(cipherLen);
+        for (let i = 0; i < cipherLen; i++) {
+            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+        }
+
         let bestKey = '';
         let bestText = '';
-        const plaintextBuffer = new Uint8Array(this.ciphertext.length);
 
-        // Режим для ключей ≤10 символов (максимальная скорость)
-        if (this.keyLength <= 10) {
-            for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-                this.processKey(keyNum, cipherCodes, plaintextBuffer);
-            }
-        } 
-        // Режим для ключей >10 символов (поддержка BigInt)
-        else {
-            const bigStart = BigInt(startKey);
-            const bigEnd = BigInt(endKey);
-            let current = bigStart;
+        // Блочная обработка для плавной выдачи результатов
+        const BLOCK_SIZE = 100000;
+        let currentBlockStart = startKey;
+
+        while (currentBlockStart < endKey && this.running) {
+            const blockEnd = Math.min(currentBlockStart + BLOCK_SIZE, endKey);
             
-            while (current < bigEnd && this.running) {
-                this.processBigKey(current, cipherCodes, plaintextBuffer);
-                current++;
+            for (let keyNum = currentBlockStart; keyNum < blockEnd; keyNum++) {
+                const key = this.generateKey(keyNum);
+                let plaintext = '';
+                
+                // Дешифровка
+                for (let i = 0; i < cipherLen; i++) {
+                    const plainPos = (cipherCodes[i] - this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+                    plaintext += this.alphabet[plainPos];
+                }
+
+                // Оценка
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    bestKey = key;
+                    bestText = plaintext;
+                    self.postMessage({
+                        type: 'result',
+                        key: bestKey,
+                        plaintext: bestText,
+                        score: this.bestScore
+                    });
+                }
             }
+
+            // Отчет о прогрессе
+            const now = performance.now();
+            if (now - this.lastReportTime > 1000) {
+                const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                self.postMessage({
+                    type: 'progress',
+                    keysTested: this.keysTested,
+                    kps: kps
+                });
+                this.lastReportTime = now;
+            }
+
+            currentBlockStart = blockEnd;
         }
 
         self.postMessage({ type: 'complete' });
-    }
-
-    processKey(keyNum, cipherCodes, plaintextBuffer) {
-        // Генерация ключа (оптимизированная для ≤10 символов)
-        let remaining = keyNum;
-        const key = new Array(this.keyLength);
-        for (let i = this.keyLength - 1; i >= 0; i--) {
-            key[i] = this.alphabet[remaining % 26];
-            remaining = Math.floor(remaining / 26);
-        }
-        const keyStr = key.join('');
-
-        // Дешифровка
-        for (let i = 0; i < cipherCodes.length; i++) {
-            plaintextBuffer[i] = (cipherCodes[i] - this.charMap[keyStr.charCodeAt(i % this.keyLength)] + 26) % 26;
-        }
-
-        this.evaluateResult(plaintextBuffer, keyStr);
-    }
-
-    processBigKey(keyNum, cipherCodes, plaintextBuffer) {
-        // Генерация ключа через BigInt
-        let remaining = keyNum;
-        const key = new Array(this.keyLength);
-        for (let i = this.keyLength - 1; i >= 0; i--) {
-            key[i] = this.alphabet[Number(remaining % 26n)];
-            remaining = remaining / 26n;
-        }
-        const keyStr = key.join('');
-
-        // Дешифровка
-        for (let i = 0; i < cipherCodes.length; i++) {
-            plaintextBuffer[i] = (cipherCodes[i] - this.charMap[keyStr.charCodeAt(i % this.keyLength)] + 26) % 26;
-        }
-
-        this.evaluateResult(plaintextBuffer, keyStr);
-    }
-
-    evaluateResult(plaintextBuffer, keyStr) {
-        const plainText = Array.from(plaintextBuffer).map(i => this.alphabet[i]).join('');
-        const score = this.scoreText(plainText);
-        this.keysTested++;
-
-        if (score > this.bestScore) {
-            this.bestScore = score;
-            self.postMessage({
-                type: 'result',
-                key: keyStr,
-                plaintext: plainText,
-                score: score
-            });
-        }
-
-        if (this.keysTested % 50000 === 0) {
-            const kps = Math.round(this.keysTested / ((performance.now() - this.startTime) / 1000));
-            self.postMessage({
-                type: 'progress',
-                keysTested: this.keysTested,
-                kps: kps
-            });
-        }
     }
 
     scoreText(text) {
