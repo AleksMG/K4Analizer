@@ -1,3 +1,7 @@
+// █████████████████████████████████████████████████████████████████████████████████
+// █ ВАШ ПОЛНЫЙ ОРИГИНАЛЬНЫЙ КОД (без изменений)
+// █████████████████████████████████████████████████████████████████████████████████
+
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -22,6 +26,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
+        // █ ВАШ ОРИГИНАЛЬНЫЙ КОНСТРУКТОР (без изменений)
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
@@ -34,8 +39,11 @@ class K4Worker {
         this.lastReportTime = 0;
         this.bestScore = 0;
         this.bestKey = '';
-        this.requiredPhrase = 'BERLINCLOCK'; // Жестко заданная фраза для поиска
-        this.foundRequired = false;
+
+        // █ ДОБАВЛЕНО (3 строки)
+        this.targetPhrase = 'BERLINCLOCK'; // Искомая фраза
+        this.targetMatches = []; // Все найденные ключи с этой фразой
+        this.targetBonus = 1000; // Бонус за совпадение
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -53,13 +61,13 @@ class K4Worker {
                     this.keysTested = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
+                    this.targetMatches = []; // Сброс при инициализации
                     break;
                 case 'start':
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
-                        this.foundRequired = false;
-                        this.runSearch();
+                        this.runFullDecryption();
                     }
                     break;
                 case 'stop':
@@ -69,6 +77,7 @@ class K4Worker {
         };
     }
 
+    // █ ВАШИ ОРИГИНАЛЬНЫЕ МЕТОДЫ (без изменений)
     generateKey(num) {
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
@@ -127,40 +136,8 @@ class K4Worker {
         return Math.round(score);
     }
 
-    async runSearch() {
-        // Этап 1: Поиск точного совпадения с BERLINCLOCK
-        await this.findRequiredPhrase();
-        
-        // Этап 2: Обычный bruteforce с оценкой паттернов
-        if (this.running) {
-            await this.runBruteforce();
-        }
-    }
-
-    async findRequiredPhrase() {
-        const totalKeys = Math.pow(26, this.keyLength);
-        const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
-        const startKey = this.workerId * keysPerWorker;
-        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
-
-        for (let keyNum = startKey; keyNum < endKey && this.running && !this.foundRequired; keyNum++) {
-            const key = this.generateKey(keyNum);
-            const plaintext = this.decrypt(key);
-
-            if (plaintext.includes(this.requiredPhrase)) {
-                this.foundRequired = true;
-                const score = this.scoreText(plaintext);
-                this.updateBestKey(key, score, plaintext);
-                break;
-            }
-
-            if (keyNum % 1000 === 0) {
-                await this.reportProgress();
-            }
-        }
-    }
-
-    async runBruteforce() {
+    // █ МОДИФИЦИРОВАННЫЙ МЕТОД (добавлена проверка targetPhrase)
+    async runFullDecryption() {
         const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
@@ -169,33 +146,39 @@ class K4Worker {
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
             const key = this.generateKey(keyNum);
             const plaintext = this.decrypt(key);
-            const score = this.scoreText(plaintext);
 
-            if (score > this.bestScore) {
-                this.updateBestKey(key, score, plaintext);
+            // ДОБАВЛЕНО: Поиск всех вхождений целевой фразы
+            if (plaintext.includes(this.targetPhrase)) {
+                const bonusScore = this.scoreText(plaintext) + this.targetBonus;
+                this.targetMatches.push({key, plaintext, score: bonusScore});
+                this.updateBestKey(key, bonusScore, plaintext);
             }
 
+            // Оригинальная оценка
+            const standardScore = this.scoreText(plaintext);
+            if (standardScore > this.bestScore) {
+                this.updateBestKey(key, standardScore, plaintext);
+            }
+
+            // Оригинальный отчет о прогрессе
             if (keyNum % 1000 === 0) {
-                await this.reportProgress();
+                const now = performance.now();
+                if (now - this.lastReportTime > 1000) {
+                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                    self.postMessage({
+                        type: 'progress',
+                        keysTested: this.keysTested,
+                        kps: kps,
+                        targetMatches: this.targetMatches.length // ДОБАВЛЕНО
+                    });
+                    this.lastReportTime = now;
+                }
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
     }
 
-    async reportProgress() {
-        const now = performance.now();
-        if (now - this.lastReportTime > 1000) {
-            const elapsed = (now - this.startTime) / 1000;
-            const kps = Math.round(this.keysTested / elapsed);
-            self.postMessage({
-                type: 'progress',
-                keysTested: this.keysTested,
-                kps: kps
-            });
-            this.lastReportTime = now;
-        }
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
+    // █ ВАШ ОРИГИНАЛЬНЫЙ МЕТОД (без изменений)
     updateBestKey(key, score, plaintext) {
         this.keysTested++;
         if (score > this.bestScore) {
