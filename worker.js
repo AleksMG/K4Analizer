@@ -7,8 +7,18 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-const commonPatterns = ['THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY', 'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT', 'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'];
-const uncommonPatterns = ['BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST', 'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE', 'MESSAGE', 'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'];
+const commonPatterns = [
+    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
+    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'
+];
+
+const uncommonPatterns = [
+    'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST',
+    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE',
+    'MESSAGE', 'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
+    'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
+];
 
 class K4Worker {
     constructor() {
@@ -17,46 +27,44 @@ class K4Worker {
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
+        this.knownPlaintext = '';
         this.workerId = 0;
         this.totalWorkers = 1;
         this.keysTested = 0;
         this.startTime = 0;
-
-        // Инициализация charMap (быстрая)
-        this.charMap.fill(255);
+        this.lastReportTime = 0;
+        
+        // Инициализация charMap с защитой от неопределенных символов
+        this.charMap.fill(255); // Устанавливаем недопустимое значение по умолчанию
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Предрасчёт частот (оптимизированный)
-        this.englishFreqArray = new Float32Array(26);
-        for (let i = 0; i < 26; i++) {
-            this.englishFreqArray[i] = ENGLISH_FREQ[this.alphabet[i]] || 0;
-        }
+        self.onmessage = (e) => this.handleMessage(e.data);
+    }
 
-        // Обработчик сообщений (без изменений)
-        self.onmessage = (e) => {
-            const msg = e.data;
-            switch (msg.type) {
-                case 'init':
-                    this.ciphertext = msg.ciphertext;
-                    this.keyLength = msg.keyLength;
-                    this.workerId = msg.workerId || 0;
-                    this.totalWorkers = msg.totalWorkers || 1;
-                    this.keysTested = 0;
-                    break;
-                case 'start':
-                    if (!this.running) {
-                        this.running = true;
-                        this.startTime = performance.now();
-                        this.bruteForce();
-                    }
-                    break;
-                case 'stop':
-                    this.running = false;
-                    break;
-            }
-        };
+    handleMessage(msg) {
+        switch (msg.type) {
+            case 'init':
+                this.ciphertext = msg.ciphertext;
+                this.keyLength = msg.keyLength;
+                this.knownPlaintext = msg.knownPlaintext || '';
+                this.workerId = msg.workerId || 0;
+                this.totalWorkers = msg.totalWorkers || 1;
+                this.keysTested = 0;
+                break;
+                
+            case 'start':
+                this.running = true;
+                this.startTime = performance.now();
+                this.lastReportTime = this.startTime;
+                this.bruteForce();
+                break;
+                
+            case 'stop':
+                this.running = false;
+                break;
+        }
     }
 
     bruteForce() {
@@ -64,88 +72,128 @@ class K4Worker {
         const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
-
-        // Подготовка данных (оптимизированная)
+        
+        let bestScore = 0;
+        let bestKey = null;
+        let bestText = '';
+        
+        // Оптимизация: предварительно вычисляем коды символов
         const cipherLen = this.ciphertext.length;
         const cipherCodes = new Uint8Array(cipherLen);
         for (let i = 0; i < cipherLen; i++) {
-            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+            const code = this.ciphertext.charCodeAt(i);
+            cipherCodes[i] = this.charMap[code] !== 255 ? this.charMap[code] : 0;
         }
 
-        // Буферы (создаём один раз!)
-        const keyBuffer = new Uint8Array(this.keyLength);
-        const plainBuffer = new Uint8Array(cipherLen);
-        const freq = new Uint16Array(26);
-        let bestScore = 0;
-        let bestKey = '';
-        let bestText = '';
-
-        // Основной цикл (оптимизированный)
+        // Главный цикл перебора ключей
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            // Генерация ключа (быстрая)
-            let num = keyNum;
-            for (let i = 0; i < this.keyLength; i++) {
-                keyBuffer[i] = num % 26;
-                num = Math.floor(num / 26);
-            }
-
-            // Расшифровка (оптимизированная)
-            freq.fill(0);
+            const key = this.generateKey(keyNum);
+            
+            // Расшифровка
+            let plaintext = '';
             for (let i = 0; i < cipherLen; i++) {
-                plainBuffer[i] = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
-                freq[plainBuffer[i]]++;
+                const cipherPos = cipherCodes[i];
+                const keyPos = this.charMap[key.charCodeAt(i % this.keyLength)];
+                plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
             }
-
-            // Быстрый подсчёт score (без лишних операций)
-            let score = 0;
-            const totalLetters = cipherLen;
-            const freqNormalizer = 100 / totalLetters;
-            for (let i = 0; i < 26; i++) {
-                const expected = this.englishFreqArray[i];
-                const actual = freq[i] * freqNormalizer;
-                score += 100 - Math.abs(expected - actual);
-            }
-
-            // Преобразуем в строку (1 раз за ключ)
-            const plainText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('').toUpperCase();
-
-            // Проверка паттернов (быстрая, через includes)
-            for (const pattern of commonPatterns) {
-                if (plainText.includes(pattern)) score += pattern.length * 25;
-            }
-            for (const pattern of uncommonPatterns) {
-                if (plainText.includes(pattern)) score += pattern.length * 50;
-            }
-
-            score = Math.round(score);
+            
+            // Оценка текста
+            const score = this.scoreText(plaintext);
             this.keysTested++;
-
-            // Отправка результатов (если нашли лучше)
+            
             if (score > bestScore) {
                 bestScore = score;
-                bestKey = Array.from(keyBuffer).map(i => this.alphabet[i]).reverse().join('');
-                bestText = plainText;
+                bestKey = key;
+                bestText = plaintext;
                 self.postMessage({
                     type: 'result',
-                    key: bestKey,
-                    plaintext: bestText,
+                    key,
+                    plaintext,
                     score
                 });
             }
-
-            // Отчёт о прогрессе (раз в 100k ключей)
-            if (this.keysTested % 100000 === 0) {
+            
+            // Отчет о прогрессе
+            if (this.keysTested % 500000 === 0) {
                 const now = performance.now();
-                const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                self.postMessage({
-                    type: 'progress',
-                    keysTested: this.keysTested,
-                    kps
-                });
+                if (now - this.lastReportTime > 1000) { // Не чаще 1 раза в секунду
+                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                    self.postMessage({
+                        type: 'progress',
+                        keysTested: this.keysTested,
+                        kps
+                    });
+                    this.lastReportTime = now;
+                }
+            }
+            
+            // Проверка флага остановки между итерациями
+            if (this.keysTested % 10000 === 0 && !this.running) break;
+        }
+        
+        if (this.running) {
+            self.postMessage({ type: 'complete' });
+        }
+    }
+
+    generateKey(num) {
+        let key = '';
+        for (let i = 0; i < this.keyLength; i++) {
+            key = this.alphabet[num % 26] + key;
+            num = Math.floor(num / 26);
+        }
+        return key;
+    }
+
+    scoreText(text) {
+        let score = 0;
+        const upperText = text.toUpperCase();
+        
+        // 1. Проверка известного открытого текста
+        if (this.knownPlaintext) {
+            const knownUpper = this.knownPlaintext.toUpperCase();
+            if (upperText.includes(knownUpper)) {
+                score += 1000 * knownUpper.length;
             }
         }
-
-        self.postMessage({ type: 'complete' });
+        
+        // 2. Частотный анализ
+        const freq = new Uint16Array(26);
+        let totalLetters = 0;
+        
+        for (let i = 0; i < text.length; i++) {
+            const code = text.charCodeAt(i);
+            if (code >= 65 && code <= 90) { // A-Z
+                freq[code - 65]++;
+                totalLetters++;
+            }
+        }
+        
+        if (totalLetters > 0) {
+            for (let i = 0; i < 26; i++) {
+                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
+                const actual = (freq[i] / totalLetters) * 100;
+                score += 100 - Math.abs(expected - actual);
+            }
+        }
+        
+        // 3. Поиск общих паттернов
+        for (const pattern of commonPatterns) {
+            let pos = -1;
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 25;
+            }
+        }
+        
+        // 4. Поиск специальных паттернов (с большим весом)
+        for (const pattern of uncommonPatterns) {
+            let pos = -1;
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 50;
+            }
+        }
+        
+        return Math.max(0, Math.round(score));
     }
 }
 
