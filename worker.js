@@ -1,7 +1,3 @@
-// █████████████████████████████████████████████████████████████████████████████████
-// █ ВАШ ПОЛНЫЙ ОРИГИНАЛЬНЫЙ КОД (без изменений)
-// █████████████████████████████████████████████████████████████████████████████████
-
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -26,7 +22,6 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        // █ ВАШ ОРИГИНАЛЬНЫЙ КОНСТРУКТОР (без изменений)
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
@@ -39,15 +34,19 @@ class K4Worker {
         this.lastReportTime = 0;
         this.bestScore = 0;
         this.bestKey = '';
+        this.targetPhrase = 'BERLINCLOCK';
+        this.targetMatches = [];
 
-        // █ ДОБАВЛЕНО (3 строки)
-        this.targetPhrase = 'BERLINCLOCK'; // Искомая фраза
-        this.targetMatches = []; // Все найденные ключи с этой фразой
-        this.targetBonus = 1000; // Бонус за совпадение
+        // Оптимизации
+        this.cipherCodes = null;
+        this.keyCache = null;
+        this.alphabetCodes = new Uint8Array(26);
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
-            this.charMap[this.alphabet.charCodeAt(i)] = i;
+            const code = this.alphabet.charCodeAt(i);
+            this.charMap[code] = i;
+            this.alphabetCodes[i] = code;
         }
 
         self.onmessage = (e) => {
@@ -58,16 +57,24 @@ class K4Worker {
                     this.keyLength = msg.keyLength;
                     this.workerId = msg.workerId || 0;
                     this.totalWorkers = msg.totalWorkers || 1;
+                    
+                    // Инициализация оптимизаций
+                    this.cipherCodes = new Uint8Array(this.ciphertext.length);
+                    for (let i = 0; i < this.ciphertext.length; i++) {
+                        this.cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+                    }
+                    this.keyCache = new Uint8Array(this.keyLength);
+                    
                     this.keysTested = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
-                    this.targetMatches = []; // Сброс при инициализации
+                    this.targetMatches = [];
                     break;
                 case 'start':
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
-                        this.runFullDecryption();
+                        this.runOptimizedBruteforce();
                     }
                     break;
                 case 'stop':
@@ -77,7 +84,6 @@ class K4Worker {
         };
     }
 
-    // █ ВАШИ ОРИГИНАЛЬНЫЕ МЕТОДЫ (без изменений)
     generateKey(num) {
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
@@ -87,12 +93,12 @@ class K4Worker {
         return key.join('');
     }
 
-    decrypt(key) {
+    // Оптимизированный decrypt
+    decrypt() {
         let plaintext = '';
-        for (let i = 0; i < this.ciphertext.length; i++) {
-            const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
-                            this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
-            plaintext += this.alphabet[plainPos];
+        for (let i = 0; i < this.cipherCodes.length; i++) {
+            const plainPos = (this.cipherCodes[i] - this.keyCache[i % this.keyLength] + 26) % 26;
+            plaintext += String.fromCharCode(this.alphabetCodes[plainPos]);
         }
         return plaintext;
     }
@@ -113,7 +119,7 @@ class K4Worker {
 
         if (totalLetters > 0) {
             for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
+                const expected = ENGLISH_FREQ[String.fromCharCode(65 + i)] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
                 score += 100 - Math.abs(expected - actual);
             }
@@ -136,51 +142,52 @@ class K4Worker {
         return Math.round(score);
     }
 
-    // █ МОДИФИЦИРОВАННЫЙ МЕТОД (добавлена проверка targetPhrase)
-    async runFullDecryption() {
-        const totalKeys = Math.pow(26, this.keyLength);
-        const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
-        const startKey = this.workerId * keysPerWorker;
-        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
+    async runOptimizedBruteforce() {
+        const batchSize = 100000;
+        let batchCount = 0;
+        const startTime = performance.now();
+        
+        while (this.running) {
+            // Генерация ключа
+            for (let i = 0; i < this.keyLength; i++) {
+                this.keyCache[i] = Math.floor(Math.random() * 26);
+            }
+            
+            const plaintext = this.decrypt();
+            this.keysTested++;
+            batchCount++;
 
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            const key = this.generateKey(keyNum);
-            const plaintext = this.decrypt(key);
-
-            // ДОБАВЛЕНО: Поиск всех вхождений целевой фразы
+            // Проверка целевой фразы
             if (plaintext.includes(this.targetPhrase)) {
-                const bonusScore = this.scoreText(plaintext) + this.targetBonus;
-                this.targetMatches.push({key, plaintext, score: bonusScore});
-                this.updateBestKey(key, bonusScore, plaintext);
+                const score = this.scoreText(plaintext) + 10000;
+                this.targetMatches.push({
+                    key: Array.from(this.keyCache).map(i => this.alphabet[i]).join(''),
+                    plaintext: plaintext,
+                    score: score
+                });
+                this.updateBestKey(this.targetMatches[this.targetMatches.length - 1].key, score, plaintext);
             }
 
-            // Оригинальная оценка
-            const standardScore = this.scoreText(plaintext);
-            if (standardScore > this.bestScore) {
-                this.updateBestKey(key, standardScore, plaintext);
-            }
-
-            // Оригинальный отчет о прогрессе
-            if (keyNum % 1000 === 0) {
+            // Отчет о прогрессе
+            if (batchCount >= batchSize) {
                 const now = performance.now();
-                if (now - this.lastReportTime > 1000) {
-                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                    self.postMessage({
-                        type: 'progress',
-                        keysTested: this.keysTested,
-                        kps: kps,
-                        targetMatches: this.targetMatches.length // ДОБАВЛЕНО
-                    });
-                    this.lastReportTime = now;
-                }
+                const elapsed = (now - startTime) / 1000;
+                const kps = Math.round(this.keysTested / elapsed);
+                
+                self.postMessage({
+                    type: 'progress',
+                    keysTested: this.keysTested,
+                    kps: kps,
+                    targetMatches: this.targetMatches.length
+                });
+                
+                batchCount = 0;
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
     }
 
-    // █ ВАШ ОРИГИНАЛЬНЫЙ МЕТОД (без изменений)
     updateBestKey(key, score, plaintext) {
-        this.keysTested++;
         if (score > this.bestScore) {
             this.bestScore = score;
             this.bestKey = key;
@@ -188,7 +195,8 @@ class K4Worker {
                 type: 'result',
                 key: key,
                 plaintext: plaintext,
-                score: score
+                score: score,
+                isTarget: score >= 10000
             });
         }
     }
