@@ -11,7 +11,6 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-// В ТОЧНОСТИ ВАШИ ПАТТЕРНЫ (без изменений)
 const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -31,7 +30,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        // 1. ВСЕ ОРИГИНАЛЬНЫЕ ПЕРЕМЕННЫЕ
+        // 1. Инициализация всех оригинальных переменных
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
@@ -44,13 +43,23 @@ class K4Worker {
         this.startTime = 0;
         this.lastReportTime = 0;
         
-        // Инициализация charMap (как у вас)
+        // Инициализация charMap (оптимизированная)
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // 2. Оригинальный обработчик сообщений (как у вас)
+        // 2. Оптимизированные структуры данных
+        this.englishFreqArray = new Float32Array(26);
+        for (let i = 0; i < 26; i++) {
+            this.englishFreqArray[i] = ENGLISH_FREQ[this.alphabet[i]] || 0;
+        }
+        
+        // Преобразование паттернов в числовые коды один раз
+        this.commonPatternsNumeric = this.convertPatternsToNumeric(commonPatterns);
+        this.uncommonPatternsNumeric = this.convertPatternsToNumeric(uncommonPatterns);
+
+        // 3. Оригинальный обработчик сообщений (без изменений)
         self.onmessage = (e) => {
             const msg = e.data;
             switch (msg.type) {
@@ -78,7 +87,19 @@ class K4Worker {
         };
     }
 
-    // 3. ГЛАВНЫЙ МЕТОД (полная совместимость + оптимизации)
+    // Преобразование паттернов в числовые коды
+    convertPatternsToNumeric(patterns) {
+        return patterns.map(p => {
+            const upper = p.toUpperCase();
+            const numeric = new Uint8Array(upper.length);
+            for (let i = 0; i < upper.length; i++) {
+                numeric[i] = this.charMap[upper.charCodeAt(i)];
+            }
+            return numeric;
+        });
+    }
+
+    // 4. ОПТИМИЗИРОВАННЫЙ ГЛАВНЫЙ МЕТОД
     bruteForce() {
         // Оригинальное распределение работы
         const totalKeys = Math.pow(26, this.keyLength);
@@ -86,14 +107,14 @@ class K4Worker {
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, totalKeys);
         
-        // Подготовка данных (как в оригинале)
+        // Подготовка данных (оптимизированная)
         const cipherLen = this.ciphertext.length;
         const cipherCodes = new Uint8Array(cipherLen);
         for (let i = 0; i < cipherLen; i++) {
             cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
         }
 
-        // Оптимизированные буферы
+        // Буферы для вычислений (вынесены из цикла)
         const keyBuffer = new Uint8Array(this.keyLength);
         const plainBuffer = new Uint8Array(cipherLen);
         const freq = new Uint16Array(26);
@@ -101,78 +122,107 @@ class K4Worker {
         let bestKey = '';
         let bestText = '';
 
-        // Основной цикл
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            // Генерация ключа (аналогично оригиналу)
-            for (let i = 0, num = keyNum; i < this.keyLength; i++, num = Math.floor(num / 26)) {
-                keyBuffer[i] = num % 26;
-            }
+        // Оптимизация: заранее вычисляем индексы для проверки паттернов
+        const checkIndices = new Array(cipherLen);
+        for (let i = 0; i < cipherLen; i++) checkIndices[i] = i;
+
+        // Основной цикл - разбит на блоки для лучшего управления памятью
+        const BLOCK_SIZE = 100000; // 100k ключей за итерацию
+        let blockStart = startKey;
+        
+        while (blockStart < endKey && this.running) {
+            const blockEnd = Math.min(blockStart + BLOCK_SIZE, endKey);
             
-            // Расшифровка с буферизацией
-            freq.fill(0);
-            for (let i = 0; i < cipherLen; i++) {
-                plainBuffer[i] = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
-                freq[plainBuffer[i]]++;
-            }
-            
-            // ВАША ОРИГИНАЛЬНАЯ ЛОГИКА ОЦЕНКИ
-            let score = 0;
-            const totalLetters = cipherLen;
-            
-            // Частотный анализ (как у вас)
-            for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
-                const actual = (freq[i] / totalLetters) * 100;
-                score += 100 - Math.abs(expected - actual);
-            }
-            
-            // Проверка паттернов (дословно ваш код)
-            const plainText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('');
-            const upperText = plainText.toUpperCase();
-            
-            for (const pattern of commonPatterns) {
-                let pos = -1;
-                while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                    score += pattern.length * 25;
+            for (let keyNum = blockStart; keyNum < blockEnd; keyNum++) {
+                // Генерация ключа (оптимизированная)
+                let num = keyNum;
+                for (let i = 0; i < this.keyLength; i++) {
+                    keyBuffer[i] = num % 26;
+                    num = Math.floor(num / 26);
+                }
+                
+                // Расшифровка с буферизацией
+                freq.fill(0);
+                for (let i = 0; i < cipherLen; i++) {
+                    plainBuffer[i] = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
+                    freq[plainBuffer[i]]++;
+                }
+                
+                // Оптимизированный частотный анализ
+                let score = 0;
+                const totalLetters = cipherLen;
+                const freqNormalizer = 100 / totalLetters;
+                
+                for (let i = 0; i < 26; i++) {
+                    const expected = this.englishFreqArray[i];
+                    const actual = freq[i] * freqNormalizer;
+                    score += 100 - Math.abs(expected - actual);
+                }
+                
+                // Оптимизированная проверка паттернов
+                for (const pattern of this.commonPatternsNumeric) {
+                    if (pattern.length > cipherLen) continue;
+                    for (const i of checkIndices) {
+                        if (i + pattern.length > cipherLen) break;
+                        let match = true;
+                        for (let j = 0; j < pattern.length; j++) {
+                            if (plainBuffer[i + j] !== pattern[j]) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) score += pattern.length * 25;
+                    }
+                }
+                
+                for (const pattern of this.uncommonPatternsNumeric) {
+                    if (pattern.length > cipherLen) continue;
+                    for (const i of checkIndices) {
+                        if (i + pattern.length > cipherLen) break;
+                        let match = true;
+                        for (let j = 0; j < pattern.length; j++) {
+                            if (plainBuffer[i + j] !== pattern[j]) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) score += pattern.length * 50;
+                    }
+                }
+                
+                score = Math.round(score);
+                this.keysTested++;
+                
+                // Отправка результатов (без изменений)
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestKey = Array.from(keyBuffer).map(i => this.alphabet[i]).reverse().join('');
+                    bestText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('');
+                    self.postMessage({
+                        type: 'result',
+                        key: bestKey,
+                        plaintext: bestText,
+                        score
+                    });
                 }
             }
             
-            for (const pattern of uncommonPatterns) {
-                let pos = -1;
-                while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                    score += pattern.length * 50;
-                }
-            }
-            
-            score = Math.round(score);
-            this.keysTested++;
-            
-            // Отправка результатов (как в оригинале)
-            if (score > bestScore) {
-                bestScore = score;
-                bestKey = Array.from(keyBuffer).map(i => this.alphabet[i]).reverse().join('');
-                bestText = plainText;
-                self.postMessage({
-                    type: 'result',
-                    key: bestKey,
-                    plaintext: bestText,
-                    score
-                });
-            }
-            
-            // Отчет о прогрессе (как в оригинале)
-            if (this.keysTested % 100000 === 0) {
-                const now = performance.now();
+            // Оптимизированная отчетность о прогрессе
+            const now = performance.now();
+            if (now - this.lastReportTime > 1000) { // Отчет раз в секунду
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested,
                     kps
                 });
+                this.lastReportTime = now;
             }
+            
+            blockStart = blockEnd;
         }
         
-        // Финальное сообщение (как в оригинале)
+        // Финальное сообщение (без изменений)
         self.postMessage({ type: 'complete' });
     }
 }
