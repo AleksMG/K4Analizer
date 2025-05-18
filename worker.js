@@ -22,8 +22,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        // 1. Полностью сохраненная оригинальная инициализация
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -35,14 +34,16 @@ class K4Worker {
         this.lastReportTime = 0;
         this.bestScore = 0;
         this.bestKey = '';
-        this.externalPlaintext = ''; // Для интеграции с внешним plaintext
-        this.foundTarget = false;
+        this.knownPlaintext = ''; // Для интеграции с вашим полем ввода
+        this.foundPriorityMatch = false; // Флаг найденного приоритетного совпадения
 
+        // Инициализация charMap
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
+        // Оригинальный обработчик сообщений с добавлением knownPlaintext
         self.onmessage = (e) => {
             const msg = e.data;
             switch (msg.type) {
@@ -59,21 +60,28 @@ class K4Worker {
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
-                        this.runParallelStrategies();
+                        this.foundPriorityMatch = false;
+                        this.runPrioritizedSearch();
                     }
                     break;
                 case 'stop':
                     this.running = false;
                     break;
                 case 'setPlaintext':
-                    this.externalPlaintext = msg.text.toUpperCase();
-                    this.foundTarget = false;
+                    this.knownPlaintext = msg.text.toUpperCase();
+                    break;
+                case 'updateAlphabet':
+                    this.alphabet = msg.alphabet;
+                    this.charMap.fill(255);
+                    for (let i = 0; i < this.alphabet.length; i++) {
+                        this.charMap[this.alphabet.charCodeAt(i)] = i;
+                    }
                     break;
             }
         };
     }
 
-    // 2. Все оригинальные методы полностью сохранены
+    // Полностью сохраненные оригинальные методы
     generateKey(num) {
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
@@ -132,31 +140,32 @@ class K4Worker {
         return Math.round(score);
     }
 
-    // 3. Новые методы для параллельной работы
-    async runParallelStrategies() {
-        const tasks = [
-            this.findTargetText(),
-            this.runBruteforce(),
-            this.runOptimization()
-        ];
-        await Promise.race(tasks);
+    // Новый метод для приоритетного поиска
+    async runPrioritizedSearch() {
+        // 1. Сначала ищем точное совпадение с knownPlaintext
+        if (this.knownPlaintext) {
+            await this.searchExactMatch();
+            if (this.foundPriorityMatch) return;
+        }
+
+        // 2. Затем продолжаем обычный bruteforce
+        await this.runStandardBruteforce();
     }
 
-    async findTargetText() {
-        if (!this.externalPlaintext) return;
-
-        const target = this.externalPlaintext;
+    async searchExactMatch() {
+        const target = this.knownPlaintext;
         const targetLength = target.length;
-        const maxAttempts = 1000000; // Лимит для безопасности
+        const cipherLength = this.ciphertext.length;
+        const maxAttempts = 1000000;
 
-        for (let i = 0; i < maxAttempts && this.running && !this.foundTarget; i++) {
+        for (let i = 0; i < maxAttempts && this.running && !this.foundPriorityMatch; i++) {
             const key = this.generateKey(Math.floor(Math.random() * Math.pow(26, this.keyLength)));
             const decrypted = this.decrypt(key);
 
             if (decrypted.includes(target)) {
-                const score = this.scoreText(decrypted);
+                const score = 1000 + this.scoreText(decrypted); // Максимальный приоритет
                 this.updateBestKey(key, score, decrypted);
-                this.foundTarget = true;
+                this.foundPriorityMatch = true;
                 break;
             }
 
@@ -164,13 +173,13 @@ class K4Worker {
         }
     }
 
-    async runBruteforce() {
+    async runStandardBruteforce() {
         const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
 
-        for (let keyNum = startKey; keyNum < endKey && this.running && !this.foundTarget; keyNum++) {
+        for (let keyNum = startKey; keyNum < endKey && this.running && !this.foundPriorityMatch; keyNum++) {
             const key = this.generateKey(keyNum);
             const plaintext = this.decrypt(key);
             const score = this.scoreText(plaintext);
@@ -179,46 +188,31 @@ class K4Worker {
                 this.updateBestKey(key, score, plaintext);
             }
 
-            if (keyNum % 1000 === 0) await new Promise(r => setTimeout(r, 0));
+            // Отчет о прогрессе
+            if (keyNum % 1000 === 0) {
+                await this.reportProgress();
+            }
         }
     }
 
-    async runOptimization() {
-        while (this.running && !this.foundTarget) {
-            if (!this.bestKey) {
-                await new Promise(r => setTimeout(r, 100));
-                continue;
-            }
-
-            let improved = false;
-            const keyChars = [...this.bestKey];
-
-            for (let pos = 0; pos < this.keyLength && !improved; pos++) {
-                const originalChar = keyChars[pos];
-                
-                for (const delta of [-1, 1, -2, 2]) {
-                    const newChar = this.alphabet[(this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26];
-                    keyChars[pos] = newChar;
-                    const newKey = keyChars.join('');
-                    const plaintext = this.decrypt(newKey);
-                    const score = this.scoreText(plaintext);
-
-                    if (score > this.bestScore) {
-                        this.updateBestKey(newKey, score, plaintext);
-                        improved = true;
-                        break;
-                    }
-                }
-                keyChars[pos] = originalChar;
-            }
-
-            if (!improved) {
-                await new Promise(r => setTimeout(r, 100));
-            }
+    async reportProgress() {
+        const now = performance.now();
+        if (now - this.lastReportTime > 1000) {
+            const elapsed = (now - this.startTime) / 1000;
+            const kps = Math.round(this.keysTested / elapsed);
+            self.postMessage({
+                type: 'progress',
+                keysTested: this.keysTested,
+                kps: kps,
+                bestScore: this.bestScore
+            });
+            this.lastReportTime = now;
         }
+        await new Promise(r => setTimeout(r, 0));
     }
 
     updateBestKey(key, score, plaintext) {
+        this.keysTested++;
         if (score > this.bestScore) {
             this.bestScore = score;
             this.bestKey = key;
