@@ -22,7 +22,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'; // Ваш алфавит
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -31,7 +31,8 @@ class K4Worker {
         this.totalWorkers = 1;
         this.keysTested = 0;
         this.startTime = 0;
-        this.currentKey = [];
+        this.lastReportTime = 0;
+        this.bestScore = 0;
 
         // Инициализация charMap
         this.charMap.fill(255);
@@ -39,99 +40,107 @@ class K4Worker {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        self.onmessage = (e) => this.handleMessage(e.data);
+        self.onmessage = (e) => {
+            const msg = e.data;
+            switch (msg.type) {
+                case 'init':
+                    this.ciphertext = msg.ciphertext;
+                    this.keyLength = msg.keyLength;
+                    this.workerId = msg.workerId || 0;
+                    this.totalWorkers = msg.totalWorkers || 1;
+                    this.keysTested = 0;
+                    this.bestScore = 0;
+                    break;
+                case 'start':
+                    if (!this.running) {
+                        this.running = true;
+                        this.startTime = performance.now();
+                        this.bruteForce();
+                    }
+                    break;
+                case 'stop':
+                    this.running = false;
+                    break;
+            }
+        };
     }
 
-    handleMessage(msg) {
-        switch (msg.type) {
-            case 'init':
-                this.ciphertext = msg.ciphertext;
-                this.keyLength = msg.keyLength;
-                this.workerId = msg.workerId || 0;
-                this.totalWorkers = msg.totalWorkers || 1;
-                this.currentKey = new Array(this.keyLength).fill(0);
-                break;
-            case 'start':
-                this.running = true;
-                this.startTime = performance.now();
-                this.bruteForceAdvanced();
-                break;
-            case 'stop':
-                this.running = false;
-                break;
+    generateKey(num) {
+        const key = new Array(this.keyLength);
+        for (let i = this.keyLength - 1; i >= 0; i--) {
+            key[i] = this.alphabet[num % 26];
+            num = Math.floor(num / 26);
         }
+        return key.join('');
     }
 
-    bruteForceAdvanced() {
-        const cipherCodes = new Uint8Array(this.ciphertext.length);
-        for (let i = 0; i < this.ciphertext.length; i++) {
+    bruteForce() {
+        const totalKeys = Math.pow(26, this.keyLength);
+        const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
+        const startKey = this.workerId * keysPerWorker;
+        const endKey = (this.workerId === this.totalWorkers - 1) 
+            ? totalKeys 
+            : startKey + keysPerWorker;
+
+        const cipherLen = this.ciphertext.length;
+        const cipherCodes = new Uint8Array(cipherLen);
+        for (let i = 0; i < cipherLen; i++) {
             cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
         }
 
-        const totalSymbols = this.alphabet.length;
-        const symbolsPerWorker = Math.ceil(totalSymbols / this.totalWorkers);
-        const startSymbol = this.workerId * symbolsPerWorker;
-        const endSymbol = Math.min(startSymbol + symbolsPerWorker, totalSymbols);
-
-        let bestScore = 0;
         let bestKey = '';
         let bestText = '';
 
-        // Каждый воркер начинает с своего символа
-        this.currentKey[0] = startSymbol;
+        // Блочная обработка для плавной выдачи результатов
+        const BLOCK_SIZE = 100000;
+        let currentBlockStart = startKey;
 
-        while (this.running) {
-            const key = this.currentKey.map(i => this.alphabet[i]).join('');
+        while (currentBlockStart < endKey && this.running) {
+            const blockEnd = Math.min(currentBlockStart + BLOCK_SIZE, endKey);
             
-            // Дешифровка Виженера
-            let plaintext = '';
-            for (let i = 0; i < cipherCodes.length; i++) {
-                const plainPos = (cipherCodes[i] - this.currentKey[i % this.keyLength] + 26) % 26;
-                plaintext += this.alphabet[plainPos];
+            for (let keyNum = currentBlockStart; keyNum < blockEnd; keyNum++) {
+                const key = this.generateKey(keyNum);
+                let plaintext = '';
+                
+                // Дешифровка
+                for (let i = 0; i < cipherLen; i++) {
+                    const plainPos = (cipherCodes[i] - this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+                    plaintext += this.alphabet[plainPos];
+                }
+
+                // Оценка
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    bestKey = key;
+                    bestText = plaintext;
+                    self.postMessage({
+                        type: 'result',
+                        key: bestKey,
+                        plaintext: bestText,
+                        score: this.bestScore
+                    });
+                }
             }
-
-            // Ваша оригинальная оценка
-            const score = this.scoreText(plaintext);
-            this.keysTested++;
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestKey = key;
-                bestText = plaintext;
-                self.postMessage({
-                    type: 'result',
-                    key: bestKey,
-                    plaintext: bestText,
-                    score: bestScore
-                });
-            }
-
-            // Переход к следующему ключу
-            if (!this.incrementKey()) break;
 
             // Отчет о прогрессе
-            if (this.keysTested % 100000 === 0) {
-                const now = performance.now();
+            const now = performance.now();
+            if (now - this.lastReportTime > 1000) {
                 const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested,
                     kps: kps
                 });
+                this.lastReportTime = now;
             }
+
+            currentBlockStart = blockEnd;
         }
 
         self.postMessage({ type: 'complete' });
-    }
-
-    incrementKey() {
-        for (let i = this.keyLength - 1; i >= 0; i--) {
-            this.currentKey[i]++;
-            if (this.currentKey[i] < this.alphabet.length) return true;
-            this.currentKey[i] = 0;
-            if (i === 0) return false; // Все ключи перебраны
-        }
-        return true;
     }
 
     scoreText(text) {
@@ -157,7 +166,7 @@ class K4Worker {
             }
         }
 
-        // Проверка паттернов (ваши оригинальные веса)
+        // Проверка паттернов
         for (const pattern of commonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
