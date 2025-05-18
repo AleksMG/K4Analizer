@@ -114,10 +114,10 @@ class K4Worker {
             }
             
             // Отчет о прогрессе
-            if (this.keysTested % 500000 === 0) {
+            if (this.keysTested % 10000000 === 0) {
                 const now = performance.now();
-                if (now - this.lastReportTime > 1000) { // Не чаще 1 раза в секунду
-                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                if (now - this.lastReportTime > 10000) { // Не чаще 1 раза в секунду
+                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 10000));
                     self.postMessage({
                         type: 'progress',
                         keysTested: this.keysTested,
@@ -128,7 +128,7 @@ class K4Worker {
             }
             
             // Проверка флага остановки между итерациями
-            if (this.keysTested % 10000 === 0 && !this.running) break;
+            if (this.keysTested % 100000 === 0 && !this.running) break;
         }
         
         if (this.running) {
