@@ -33,12 +33,17 @@ class K4Worker {
         this.keysTested = 0;
         this.startTime = 0;
         this.lastReportTime = 0;
-        this.lastKeysTested = 0;
         
         // Инициализация charMap
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
+        }
+
+        // Предвычисленные коды алфавита
+        this.alphabetCodes = new Uint8Array(26);
+        for (let i = 0; i < 26; i++) {
+            this.alphabetCodes[i] = this.alphabet.charCodeAt(i);
         }
 
         self.onmessage = (e) => this.handleMessage(e.data);
@@ -56,10 +61,12 @@ class K4Worker {
                 break;
                 
             case 'start':
-                this.running = true;
-                this.startTime = performance.now();
-                this.lastReportTime = this.startTime;
-                this.bruteForce();
+                if (!this.running) {
+                    this.running = true;
+                    this.startTime = performance.now();
+                    this.lastReportTime = this.startTime;
+                    this.bruteForce();
+                }
                 break;
                 
             case 'stop':
@@ -82,57 +89,66 @@ class K4Worker {
         const cipherLen = this.ciphertext.length;
         const cipherCodes = new Uint8Array(cipherLen);
         for (let i = 0; i < cipherLen; i++) {
-            const code = this.ciphertext.charCodeAt(i);
-            cipherCodes[i] = this.charMap[code] !== 255 ? this.charMap[code] : 0;
+            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
         }
 
         // Главный цикл перебора ключей
-        const batchSize = 10000; // Размер батча для отчетов
-        let batchCount = 0;
+        const keyBuffer = new Uint8Array(this.keyLength);
+        const plainBuffer = new Uint8Array(cipherLen);
+        const freq = new Uint16Array(26);
         
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            const key = this.generateKey(keyNum);
-            let plaintext = '';
-            
-            // Быстрая расшифровка
-            for (let i = 0; i < cipherLen; i++) {
-                const cipherPos = cipherCodes[i];
-                const keyPos = this.charMap[key.charCodeAt(i % this.keyLength)];
-                plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
+            // Быстрая генерация ключа
+            for (let i = 0, num = keyNum; i < this.keyLength; i++, num = Math.floor(num / 26)) {
+                keyBuffer[i] = num % 26;
             }
             
-            // Оценка текста
-            const score = this.scoreText(plaintext);
+            // Быстрая расшифровка
+            freq.fill(0);
+            let totalLetters = 0;
+            for (let i = 0; i < cipherLen; i++) {
+                const decrypted = (cipherCodes[i] - keyBuffer[i % this.keyLength] + 26) % 26;
+                plainBuffer[i] = decrypted;
+                freq[decrypted]++;
+                totalLetters++;
+            }
+            
+            // Быстрая оценка текста
+            let score = 0;
+            for (let i = 0; i < 26; i++) {
+                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
+                const actual = (freq[i] / totalLetters) * 100;
+                score += 100 - Math.abs(expected - actual);
+            }
+            
             this.keysTested++;
-            batchCount++;
             
             if (score > bestScore) {
                 bestScore = score;
-                bestKey = key;
-                bestText = plaintext;
+                bestKey = Array.from(keyBuffer).map(i => this.alphabet[i]).reverse().join('');
+                bestText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('');
                 self.postMessage({
                     type: 'result',
-                    key,
-                    plaintext,
-                    score
+                    key: bestKey,
+                    plaintext: bestText,
+                    score: Math.round(score)
                 });
             }
             
-            // Отчет о прогрессе каждые batchSize ключей или каждую секунду
-            const now = performance.now();
-            if (batchCount >= batchSize || now - this.lastReportTime >= 1000) {
+            // Отчет о прогрессе
+            if (this.keysTested % 10000 === 0) {
+                const now = performance.now();
                 const elapsed = (now - this.startTime) / 1000;
                 const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
                 
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested,
-                    kps,
+                    kps: kps,
                     percent: ((keyNum - startKey) / (endKey - startKey)) * 100
                 });
                 
                 this.lastReportTime = now;
-                batchCount = 0;
             }
         }
         
@@ -144,69 +160,13 @@ class K4Worker {
         self.postMessage({
             type: 'progress',
             keysTested: this.keysTested,
-            kps,
+            kps: kps,
             percent: 100
         });
         
         if (this.running) {
             self.postMessage({ type: 'complete' });
         }
-    }
-
-    generateKey(num) {
-        let key = '';
-        for (let i = 0; i < this.keyLength; i++) {
-            key = this.alphabet[num % 26] + key;
-            num = Math.floor(num / 26);
-        }
-        return key;
-    }
-
-    scoreText(text) {
-        let score = 0;
-        const upperText = text.toUpperCase();
-        
-        // 1. Проверка известного открытого текста
-        if (this.knownPlaintext && upperText.includes(this.knownPlaintext)) {
-            score += 1000 * this.knownPlaintext.length;
-        }
-        
-        // 2. Частотный анализ
-        const freq = new Uint16Array(26);
-        let totalLetters = 0;
-        
-        for (let i = 0; i < text.length; i++) {
-            const code = text.charCodeAt(i);
-            if (code >= 65 && code <= 90) { // A-Z
-                freq[code - 65]++;
-                totalLetters++;
-            }
-        }
-        
-        if (totalLetters > 0) {
-            for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
-                const actual = (freq[i] / totalLetters) * 100;
-                score += 100 - Math.abs(expected - actual);
-            }
-        }
-        
-        // 3. Поиск паттернов
-        for (const pattern of commonPatterns) {
-            let pos = -1;
-            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 25;
-            }
-        }
-        
-        for (const pattern of uncommonPatterns) {
-            let pos = -1;
-            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 50;
-            }
-        }
-        
-        return Math.max(0, Math.round(score));
     }
 }
 
