@@ -32,7 +32,7 @@ this.uncommonPatterns = [
         this.batchResults = [];               // Буфер для пакетной обработки
         this.lastScoreUpdate = 0;             // Время последнего обновления
         this.scoreUpdateInterval = 5000;       // Интервал обновления (мс)
-        this.batchSize = 50000;                // Размер пачки
+        this.batchSize = 10000;                // Размер пачки
 
         this.initElements();
         this.initEventListeners();
