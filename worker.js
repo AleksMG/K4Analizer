@@ -7,7 +7,7 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-        const commonPatterns = [
+const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE'
@@ -23,7 +23,7 @@ const uncommonPatterns = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
-        this.charMap = new Uint8Array(256); // ASCII lookup table
+        this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
@@ -34,7 +34,8 @@ class K4Worker {
         this.startTime = 0;
         this.lastReportTime = 0;
         
-        // Initialize character map (original code preserved)
+        // Инициализация charMap с защитой от неопределенных символов
+        this.charMap.fill(255); // Устанавливаем недопустимое значение по умолчанию
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
@@ -76,18 +77,19 @@ class K4Worker {
         let bestKey = null;
         let bestText = '';
         
-        // Precompute cipher codes (optimization added)
+        // Оптимизация: предварительно вычисляем коды символов
         const cipherLen = this.ciphertext.length;
         const cipherCodes = new Uint8Array(cipherLen);
         for (let i = 0; i < cipherLen; i++) {
-            cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
+            const code = this.ciphertext.charCodeAt(i);
+            cipherCodes[i] = this.charMap[code] !== 255 ? this.charMap[code] : 0;
         }
 
-        // Main brute-force loop (fully preserved)
+        // Главный цикл перебора ключей
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
             const key = this.generateKey(keyNum);
             
-            // Original decryption logic (EXACTLY as was)
+            // Расшифровка
             let plaintext = '';
             for (let i = 0; i < cipherLen; i++) {
                 const cipherPos = cipherCodes[i];
@@ -95,7 +97,7 @@ class K4Worker {
                 plaintext += this.alphabet[(cipherPos - keyPos + 26) % 26];
             }
             
-            // Original scoring (EXACTLY as was)
+            // Оценка текста
             const score = this.scoreText(plaintext);
             this.keysTested++;
             
@@ -111,16 +113,22 @@ class K4Worker {
                 });
             }
             
-            // Original progress reporting (EXACTLY as was)
+            // Отчет о прогрессе
             if (this.keysTested % 500000 === 0) {
                 const now = performance.now();
-                const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
-                self.postMessage({
-                    type: 'progress',
-                    keysTested: this.keysTested,
-                    kps
-                });
+                if (now - this.lastReportTime > 1000) { // Не чаще 1 раза в секунду
+                    const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+                    self.postMessage({
+                        type: 'progress',
+                        keysTested: this.keysTested,
+                        kps
+                    });
+                    this.lastReportTime = now;
+                }
             }
+            
+            // Проверка флага остановки между итерациями
+            if (this.keysTested % 10000 === 0 && !this.running) break;
         }
         
         if (this.running) {
@@ -129,7 +137,6 @@ class K4Worker {
     }
 
     generateKey(num) {
-        // Original key generation (EXACTLY as was)
         let key = '';
         for (let i = 0; i < this.keyLength; i++) {
             key = this.alphabet[num % 26] + key;
@@ -139,21 +146,24 @@ class K4Worker {
     }
 
     scoreText(text) {
-        // Original scoring (EXACTLY as was)
         let score = 0;
+        const upperText = text.toUpperCase();
         
-        // 1. Known plaintext check
-        if (this.knownPlaintext && text.includes(this.knownPlaintext)) {
-            score += 1000 * this.knownPlaintext.length;
+        // 1. Проверка известного открытого текста
+        if (this.knownPlaintext) {
+            const knownUpper = this.knownPlaintext.toUpperCase();
+            if (upperText.includes(knownUpper)) {
+                score += 1000 * knownUpper.length;
+            }
         }
         
-        // 2. Frequency analysis
+        // 2. Частотный анализ
         const freq = new Uint16Array(26);
         let totalLetters = 0;
         
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
-            if (code >= 65 && code <= 90) {
+            if (code >= 65 && code <= 90) { // A-Z
                 freq[code - 65]++;
                 totalLetters++;
             }
@@ -167,11 +177,19 @@ class K4Worker {
             }
         }
         
-        // 3. Common patterns
-        for (const pattern of COMMON_PATTERNS) {
+        // 3. Поиск общих паттернов
+        for (const pattern of commonPatterns) {
             let pos = -1;
-            while ((pos = text.indexOf(pattern, pos + 1)) !== -1) {
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
                 score += pattern.length * 25;
+            }
+        }
+        
+        // 4. Поиск специальных паттернов (с большим весом)
+        for (const pattern of uncommonPatterns) {
+            let pos = -1;
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 50;
             }
         }
         
@@ -179,5 +197,4 @@ class K4Worker {
     }
 }
 
-// Original worker initialization (EXACTLY as was)
 new K4Worker();
