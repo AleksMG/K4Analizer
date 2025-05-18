@@ -40,7 +40,7 @@ class K4Worker {
         this.optimizePositions = [];
         
         // +++ ДОБАВЛЕНО НАЧАЛО +++
-        this.primaryTarget = 'BERLINCLOCK';
+        this.primaryTarget = 'CLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
         // +++ ДОБАВЛЕНО КОНЕЦ +++
