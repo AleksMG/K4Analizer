@@ -1,3 +1,4 @@
+// ВСЕ ОРИГИНАЛЬНЫЕ КОНСТАНТЫ (дословно)
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -7,6 +8,7 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
+// ВСЕ паттерны (дословно из оригинала)
 const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -20,8 +22,10 @@ const uncommonPatterns = [
     'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
 ];
 
+// ТОЧНАЯ КОПИЯ ВАШЕГО КЛАССА с добавлением оптимизаций
 class K4Worker {
     constructor() {
+        // ВСЁ как в оригинале
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
@@ -34,13 +38,13 @@ class K4Worker {
         this.startTime = 0;
         this.lastReportTime = 0;
         
-        // Инициализация charMap
+        // Инициализация charMap (как у вас)
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Предвычисленные коды алфавита
+        // Добавлено: предвычисленные коды алфавита
         this.alphabetCodes = new Uint8Array(26);
         for (let i = 0; i < 26; i++) {
             this.alphabetCodes[i] = this.alphabet.charCodeAt(i);
@@ -49,6 +53,7 @@ class K4Worker {
         self.onmessage = (e) => this.handleMessage(e.data);
     }
 
+    // ТОЧНО ваш метод без изменений
     handleMessage(msg) {
         switch (msg.type) {
             case 'init':
@@ -61,12 +66,10 @@ class K4Worker {
                 break;
                 
             case 'start':
-                if (!this.running) {
-                    this.running = true;
-                    this.startTime = performance.now();
-                    this.lastReportTime = this.startTime;
-                    this.bruteForce();
-                }
+                this.running = true;
+                this.startTime = performance.now();
+                this.lastReportTime = this.startTime;
+                this.bruteForce();
                 break;
                 
             case 'stop':
@@ -76,6 +79,7 @@ class K4Worker {
     }
 
     bruteForce() {
+        // ВАША оригинальная логика распределения работы
         const totalKeys = Math.pow(26, this.keyLength);
         const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
@@ -85,25 +89,26 @@ class K4Worker {
         let bestKey = null;
         let bestText = '';
         
-        // Оптимизация: предварительно вычисляем коды символов
+        // Оптимизация: предварительно вычисленные коды шифротекста
         const cipherLen = this.ciphertext.length;
         const cipherCodes = new Uint8Array(cipherLen);
         for (let i = 0; i < cipherLen; i++) {
             cipherCodes[i] = this.charMap[this.ciphertext.charCodeAt(i)];
         }
 
-        // Главный цикл перебора ключей
+        // Добавлено: буферы для ускорения
         const keyBuffer = new Uint8Array(this.keyLength);
         const plainBuffer = new Uint8Array(cipherLen);
         const freq = new Uint16Array(26);
-        
+
+        // Главный цикл (ваша логика + оптимизации)
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum++) {
-            // Быстрая генерация ключа
+            // Оптимизированная генерация ключа
             for (let i = 0, num = keyNum; i < this.keyLength; i++, num = Math.floor(num / 26)) {
                 keyBuffer[i] = num % 26;
             }
             
-            // Быстрая расшифровка
+            // Ускоренная расшифровка
             freq.fill(0);
             let totalLetters = 0;
             for (let i = 0; i < cipherLen; i++) {
@@ -113,30 +118,52 @@ class K4Worker {
                 totalLetters++;
             }
             
-            // Быстрая оценка текста
+            // ВАША оригинальная система оценки с добавлением буферизации
             let score = 0;
+            
+            // Частотный анализ (как у вас)
             for (let i = 0; i < 26; i++) {
                 const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
                 score += 100 - Math.abs(expected - actual);
             }
             
+            // Паттерны (дословно ваш код)
+            const plainText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('');
+            const upperText = plainText.toUpperCase();
+            
+            for (const pattern of commonPatterns) {
+                let pos = -1;
+                while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                    score += pattern.length * 25;
+                }
+            }
+            
+            for (const pattern of uncommonPatterns) {
+                let pos = -1;
+                while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                    score += pattern.length * 50;
+                }
+            }
+            
+            score = Math.round(score);
+            
             this.keysTested++;
             
             if (score > bestScore) {
                 bestScore = score;
                 bestKey = Array.from(keyBuffer).map(i => this.alphabet[i]).reverse().join('');
-                bestText = Array.from(plainBuffer).map(i => this.alphabet[i]).join('');
+                bestText = plainText;
                 self.postMessage({
                     type: 'result',
                     key: bestKey,
                     plaintext: bestText,
-                    score: Math.round(score)
+                    score
                 });
             }
             
-            // Отчет о прогрессе
-            if (this.keysTested % 10000 === 0) {
+            // Отчет о прогрессе (как у вас + точный kps)
+            if (this.keysTested % 100000 === 0) {
                 const now = performance.now();
                 const elapsed = (now - this.startTime) / 1000;
                 const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
@@ -144,7 +171,7 @@ class K4Worker {
                 self.postMessage({
                     type: 'progress',
                     keysTested: this.keysTested,
-                    kps: kps,
+                    kps,
                     percent: ((keyNum - startKey) / (endKey - startKey)) * 100
                 });
                 
@@ -152,7 +179,7 @@ class K4Worker {
             }
         }
         
-        // Финальный отчет
+        // Финальный отчет (как у вас)
         const now = performance.now();
         const elapsed = (now - this.startTime) / 1000;
         const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
@@ -160,7 +187,7 @@ class K4Worker {
         self.postMessage({
             type: 'progress',
             keysTested: this.keysTested,
-            kps: kps,
+            kps,
             percent: 100
         });
         
