@@ -39,11 +39,10 @@ class K4Worker {
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
         
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
+        // Оптимизация для поиска ключевого слова
         this.primaryTarget = 'CLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -61,21 +60,17 @@ class K4Worker {
                     this.keysTested = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
-                    // +++ ДОБАВЛЕНО НАЧАЛО +++
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
-                    // +++ ДОБАВЛЕНО КОНЕЦ +++
                     break;
                 case 'start':
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
                         this.lastImprovementTime = this.startTime;
-                        // +++ ИЗМЕНЕНО НАЧАЛО +++
                         if (!this.primaryTargetFound) {
                             this.mode = 'primarySearch';
                         }
-                        // +++ ИЗМЕНЕНО КОНЕЦ +++
                         this.run();
                     }
                     break;
@@ -88,6 +83,11 @@ class K4Worker {
                         this.bestKey = msg.key;
                         this.lastImprovementTime = performance.now();
                     }
+                    break;
+                case 'setPrimaryTarget':
+                    this.primaryTarget = msg.target;
+                    this.primaryTargetFound = false;
+                    this.primaryResults = [];
                     break;
             }
         };
@@ -113,12 +113,10 @@ class K4Worker {
     }
 
     scoreText(text) {
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
         const upperText = text.toUpperCase();
         if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
-            return 1000; // Фиксированный балл за NCLOCK
+            return 1000;
         }
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
 
         let score = 0;
         const freq = new Uint16Array(26);
@@ -173,18 +171,15 @@ class K4Worker {
                 case 'explore':
                     await this.exploreRandom();
                     break;
-                // +++ ДОБАВЛЕНО НАЧАЛО +++
                 case 'primarySearch':
                     await this.findPrimaryTargets(startKey, endKey);
-                    this.mode = 'scan'; // После поиска переключаемся на обычный режим
+                    this.mode = 'scan';
                     break;
-                // +++ ДОБАВЛЕНО КОНЕЦ +++
             }
             this.checkProgress();
         }
     }
 
-    // +++ ДОБАВЛЕН НОВЫЙ МЕТОД +++
     async findPrimaryTargets(startKey, endKey) {
         const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
@@ -196,18 +191,25 @@ class K4Worker {
                 const plaintext = this.decrypt(key);
                 
                 if (plaintext.includes(this.primaryTarget)) {
+                    const score = this.scoreText(plaintext);
                     this.primaryResults.push({
                         key: key,
                         plaintext: plaintext,
-                        score: this.scoreText(plaintext)
+                        score: score
                     });
                     
                     self.postMessage({
                         type: 'primaryResult',
                         key: key,
                         plaintext: plaintext,
-                        score: this.scoreText(plaintext)
+                        score: score
                     });
+                    
+                    if (score > this.bestScore) {
+                        this.bestScore = score;
+                        this.bestKey = key;
+                        this.lastImprovementTime = performance.now();
+                    }
                 }
                 
                 this.keysTested++;
@@ -221,7 +223,6 @@ class K4Worker {
         this.primaryTargetFound = true;
     }
 
-    // ОРИГИНАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ:
     async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 20000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
@@ -319,7 +320,9 @@ class K4Worker {
                 type: 'progress',
                 keysTested: this.keysTested,
                 kps: kps,
-                mode: this.mode
+                mode: this.mode,
+                bestScore: this.bestScore,
+                primaryTargetFound: this.primaryTargetFound
             });
             this.lastReportTime = now;
         }
