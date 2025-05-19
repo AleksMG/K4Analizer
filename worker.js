@@ -43,11 +43,12 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
+        this.maxKeys = 0;
+        this.keysInOptimizeMode = 0;
         
-        // Параметры для параллельного поиска
         this.primaryTarget = '';
         this.primarySearchActive = true;
-        this.primarySearchInterval = 100; // ms
+        this.primarySearchInterval = 100;
         this.lastPrimarySearchTime = 0;
         this.primaryResults = [];
         this.primarySearchBatchSize = 1000;
@@ -66,10 +67,12 @@ class K4Worker {
                     this.workerId = msg.workerId || 0;
                     this.totalWorkers = msg.totalWorkers || 1;
                     this.keysTested = 0;
+                    this.keysInOptimizeMode = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
                     this.primarySearchActive = true;
                     this.primaryResults = [];
+                    this.maxKeys = Math.pow(26, this.keyLength) / this.totalWorkers;
                     break;
                 case 'start':
                     if (!this.running) {
@@ -97,6 +100,11 @@ class K4Worker {
     }
 
     generateKey(num) {
+        const maxPossible = Math.pow(26, this.keyLength);
+        if (num >= maxPossible) {
+            num = num % maxPossible;
+        }
+        
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
             key[i] = this.alphabet[num % 26];
@@ -118,7 +126,6 @@ class K4Worker {
     scoreText(text) {
         const upperText = text.toUpperCase();
         
-        // Приоритетный поиск
         if (this.primarySearchActive && upperText.includes(this.primaryTarget)) {
             const specialScore = 1000 + (this.primaryTarget.length * 100);
             return specialScore;
@@ -166,15 +173,13 @@ class K4Worker {
         const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
 
-        while (this.running) {
-            // Параллельный поиск приоритетной цели
+        while (this.running && (this.keysTested + this.keysInOptimizeMode) < (endKey - startKey)) {
             if (this.primarySearchActive && 
                 performance.now() - this.lastPrimarySearchTime > this.primarySearchInterval) {
                 this.lastPrimarySearchTime = performance.now();
                 await this.searchPrimaryBatch(startKey, endKey);
             }
 
-            // Основной алгоритм
             switch (this.mode) {
                 case 'scan':
                     await this.fullScan(startKey, endKey);
@@ -189,13 +194,21 @@ class K4Worker {
 
             this.checkProgress();
         }
+
+        if ((this.keysTested + this.keysInOptimizeMode) >= (endKey - startKey)) {
+            self.postMessage({
+                type: 'completed',
+                message: 'All keys have been tested'
+            });
+            this.running = false;
+        }
     }
 
     async searchPrimaryBatch(startKey, endKey) {
         const batchSize = this.primarySearchBatchSize;
         const keyRange = endKey - startKey;
         
-        for (let i = 0; i < batchSize && this.running; i++) {
+        for (let i = 0; i < batchSize && this.running && this.keysTested < keyRange; i++) {
             const randomKeyNum = startKey + Math.floor(Math.random() * keyRange);
             const key = this.generateKey(randomKeyNum);
             const plaintext = this.decrypt(key);
@@ -218,7 +231,7 @@ class K4Worker {
 
     async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 10000;
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
+        for (let keyNum = startKey; keyNum < endKey && this.running && this.keysTested < (endKey - startKey); keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
             for (let i = keyNum; i < blockEnd; i++) {
@@ -260,7 +273,7 @@ class K4Worker {
                 const newKey = keyChars.join('');
                 const plaintext = this.decrypt(newKey);
                 const score = this.scoreText(plaintext);
-                this.keysTested++;
+                this.keysInOptimizeMode++;
 
                 if (score > this.bestScore) {
                     this.bestScore = score;
@@ -296,7 +309,7 @@ class K4Worker {
         const randomKey = this.generateKey(randomKeyNum);
         const plaintext = this.decrypt(randomKey);
         const score = this.scoreText(plaintext);
-        this.keysTested++;
+        this.keysInOptimizeMode++;
 
         if (score > this.bestScore * 0.8) {
             this.mode = 'optimize';
@@ -309,11 +322,12 @@ class K4Worker {
         const now = performance.now();
         if (now - this.lastReportTime > 1000) {
             const elapsed = (now - this.startTime) / 1000;
-            const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
+            const totalProcessed = this.keysTested + this.keysInOptimizeMode;
+            const kps = elapsed > 0 ? Math.round(totalProcessed / elapsed) : 0;
             
             self.postMessage({
                 type: 'progress',
-                keysTested: this.keysTested,
+                keysTested: totalProcessed,
                 kps: kps,
                 mode: this.mode,
                 primarySearchActive: this.primarySearchActive
