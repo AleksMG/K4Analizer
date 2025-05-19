@@ -32,14 +32,20 @@ class K4Worker {
         this.keysTested = 0;
         this.startTime = 0;
         this.lastReportTime = 0;
-        this.bestScore = 0;
+        this.bestScore = -Infinity;
         this.bestKey = '';
         this.stuckCount = 0;
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
+        this.lastCandidateTime = 0;
+        this.candidateThreshold = 50;
         
-        // Оптимизация для поиска ключевого слова
+        // Режим агрессивного вывода
+        this.forceOutputMode = false;
+        this.forceOutputCounter = 0;
+        this.forceOutputInterval = 10000;
+
         this.primaryTarget = 'CLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
@@ -58,10 +64,11 @@ class K4Worker {
                     this.workerId = msg.workerId || 0;
                     this.totalWorkers = msg.totalWorkers || 1;
                     this.keysTested = 0;
-                    this.bestScore = 0;
+                    this.bestScore = -Infinity;
                     this.bestKey = this.generateKey(0);
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
+                    this.forceOutputMode = msg.forceOutput || false;
                     break;
                 case 'start':
                     if (!this.running) {
@@ -84,10 +91,9 @@ class K4Worker {
                         this.lastImprovementTime = performance.now();
                     }
                     break;
-                case 'setPrimaryTarget':
-                    this.primaryTarget = msg.target;
-                    this.primaryTargetFound = false;
-                    this.primaryResults = [];
+                case 'setForceOutput':
+                    this.forceOutputMode = msg.enabled;
+                    this.forceOutputInterval = msg.interval || 10000;
                     break;
             }
         };
@@ -114,23 +120,48 @@ class K4Worker {
 
     scoreText(text) {
         const upperText = text.toUpperCase();
+        let score = 0;
+        
+        // Экстренный вывод при нахождении целевого слова
         if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
-            return 1000;
+            this.primaryTargetFound = true;
+            return 10000;
         }
 
-        let score = 0;
+        // Быстрая проверка на явные паттерны
+        for (const pattern of uncommonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 100;
+            }
+        }
+
+        for (const pattern of commonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 50;
+            }
+        }
+
+        // Частотный анализ
         const freq = new Uint16Array(26);
         let totalLetters = 0;
+        let spaceCount = 0;
 
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
             if (code >= 65 && code <= 90) {
                 freq[code - 65]++;
                 totalLetters++;
+            } else if (code === 32) {
+                spaceCount++;
             }
         }
 
         if (totalLetters > 0) {
+            // Бонус за пробелы в разумном количестве
+            if (spaceCount > 0 && spaceCount < text.length / 3) {
+                score += 50;
+            }
+
             for (let i = 0; i < 26; i++) {
                 const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
@@ -138,18 +169,12 @@ class K4Worker {
             }
         }
 
-        for (const pattern of commonPatterns) {
-            let pos = -1;
-            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 25;
-            }
-        }
-
-        for (const pattern of uncommonPatterns) {
-            let pos = -1;
-            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                score += pattern.length * 50;
-            }
+        // Принудительный вывод кандидатов
+        const now = performance.now();
+        if (this.forceOutputMode && now - this.lastCandidateTime > this.forceOutputInterval) {
+            this.lastCandidateTime = now;
+            this.forceOutputCounter++;
+            score = Math.max(score, this.candidateThreshold);
         }
 
         return Math.round(score);
@@ -189,9 +214,9 @@ class K4Worker {
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
                 const plaintext = this.decrypt(key);
+                const score = this.scoreText(plaintext);
                 
                 if (plaintext.includes(this.primaryTarget)) {
-                    const score = this.scoreText(plaintext);
                     this.primaryResults.push({
                         key: key,
                         plaintext: plaintext,
@@ -204,12 +229,16 @@ class K4Worker {
                         plaintext: plaintext,
                         score: score
                     });
-                    
-                    if (score > this.bestScore) {
-                        this.bestScore = score;
-                        this.bestKey = key;
-                        this.lastImprovementTime = performance.now();
-                    }
+                }
+                
+                // Агрессивный вывод любых кандидатов
+                if (score >= this.candidateThreshold) {
+                    self.postMessage({
+                        type: 'candidate',
+                        key: key,
+                        plaintext: plaintext,
+                        score: score
+                    });
                 }
                 
                 this.keysTested++;
@@ -234,15 +263,20 @@ class K4Worker {
                 const score = this.scoreText(plaintext);
                 this.keysTested++;
 
-                if (score > this.bestScore) {
-                    this.bestScore = score;
-                    this.bestKey = key;
-                    this.lastImprovementTime = performance.now();
+                // Всегда выводим хоть какие-то результаты
+                if (score > this.bestScore || (this.forceOutputMode && this.keysTested % 100000 === 0)) {
+                    if (score > this.bestScore) {
+                        this.bestScore = score;
+                        this.bestKey = key;
+                        this.lastImprovementTime = performance.now();
+                    }
+                    
                     self.postMessage({
                         type: 'result',
-                        key: this.bestKey,
+                        key: key,
                         plaintext: plaintext,
-                        score: this.bestScore
+                        score: score,
+                        forceOutput: (score <= this.bestScore)
                     });
                 }
             }
@@ -284,6 +318,16 @@ class K4Worker {
                     });
                     break;
                 }
+                
+                // Принудительный вывод вариантов
+                if (this.forceOutputMode && score >= this.candidateThreshold) {
+                    self.postMessage({
+                        type: 'candidate',
+                        key: newKey,
+                        plaintext: plaintext,
+                        score: score
+                    });
+                }
             }
             keyChars[pos] = originalChar;
         }
@@ -305,7 +349,17 @@ class K4Worker {
         const score = this.scoreText(plaintext);
         this.keysTested++;
 
-        if (score > this.bestScore * 0.8) {
+        // Всегда выводим случайные кандидаты в этом режиме
+        if (score >= this.candidateThreshold || this.forceOutputMode) {
+            self.postMessage({
+                type: 'candidate',
+                key: randomKey,
+                plaintext: plaintext,
+                score: score
+            });
+        }
+
+        if (score > this.bestScore * 0.7) {
             this.mode = 'optimize';
         } else if (performance.now() - this.lastImprovementTime > 10000) {
             this.mode = 'scan';
@@ -322,7 +376,8 @@ class K4Worker {
                 kps: kps,
                 mode: this.mode,
                 bestScore: this.bestScore,
-                primaryTargetFound: this.primaryTargetFound
+                primaryTargetFound: this.primaryTargetFound,
+                forceOutput: this.forceOutputMode
             });
             this.lastReportTime = now;
         }
