@@ -1,90 +1,58 @@
-const ENGLISH_FREQ = {
-    'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
-    'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
-    'K': 0.772, 'L': 4.025, 'M': 2.406, 'N': 6.749, 'O': 7.507,
-    'P': 1.929, 'Q': 0.095, 'R': 5.987, 'S': 6.327, 'T': 9.056,
-    'U': 2.758, 'V': 0.978, 'W': 2.360, 'X': 0.150, 'Y': 1.974,
-    'Z': 0.074
-};
-
-const commonPatterns = [
-    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
-    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
-    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NASA', 'FBI', 'USA', 'RUS',
-    'AGENT', 'CODE', 'SECRET', 'MESSAGE', 'WORLD', 'COUNTRY', 'CITY', 'TOWN',
-    'PERSON', 'MAN', 'ENEMY', 'ALLY'
-];
-
-const uncommonPatterns = [
-    'KRYPTOS', 'BERLINCLOCK', 'EAST', 'NORTH', 'WEST',
-    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'COMPASS', 'LIGHT',
-    'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND', 'PALIMPSEST',
-    'ABSCISSA', 'CLOCKWISE', 'DIAGONAL', 'VERTICAL',
-    'HORIZONTAL', 'OBELISK', 'PYRAMID', 'SCULPTURE', 'CIPHER', 'ENCRYPT', 'DECRYPT',
-    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPARATELY', 'WEAKLY', 'SCRATCHES',
-    'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
-];
-
+// worker.js - Оптимизированная версия без дублирования логики оценки
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'; // Ваш алфавит
-        this.charMap = this.createCharMap();
-        this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
+        this.alphabet = '';
+        this.knownPlaintext = '';
         this.workerId = 0;
         this.totalWorkers = 1;
         this.keysTested = 0;
-        this.startTime = 0;
-        this.lastReportTime = 0;
-        this.bestScore = 0;
-        this.bestKey = '';
-        this.stuckCount = 0;
-        this.mode = 'scan';
-        this.lastImprovementTime = 0;
-        this.optimizePositions = [];
-
-        // Оптимизация: кэш для паттернов
-        this.patternCache = new Map();
-        for (const p of [...commonPatterns, ...uncommonPatterns]) {
-            this.patternCache.set(p, p.length * (p.length > 3 ? 50 : 25));
-        }
-
-        self.onmessage = (e) => {
-            const msg = e.data;
-            switch (msg.type) {
-                case 'init':
-                    this.ciphertext = msg.ciphertext;
-                    this.keyLength = msg.keyLength;
-                    this.workerId = msg.workerId || 0;
-                    this.totalWorkers = msg.totalWorkers || 1;
-                    this.keysTested = 0;
-                    this.bestScore = 0;
-                    this.bestKey = this.generateKey(0);
-                    break;
-                case 'start':
-                    if (!this.running) {
-                        this.running = true;
-                        this.startTime = performance.now();
-                        this.lastImprovementTime = this.startTime;
-                        this.run();
-                    }
-                    break;
-                case 'stop':
-                    this.running = false;
-                    break;
-                case 'updateBestKey':
-                    if (msg.score > this.bestScore) {
-                        this.bestScore = msg.score;
-                        this.bestKey = msg.key;
-                        this.lastImprovementTime = performance.now();
-                    }
-                    break;
-            }
-        };
+        this.batchSize = 50000; // Увеличенный размер пачки
+        this.isRunning = false;
+        this.currentKey = null;
+        this.keySpaceSize = 0;
+        this.alphabetIndexMap = {};
+        
+        // Оптимизации для дешифрования
+        this.cipherChars = [];
+        this.knownPlaintextUpper = '';
+        
+        self.onmessage = (e) => this.handleMessage(e.data);
     }
 
-    createCharMap() {
+    handleMessage(data) {
+        switch (data.type) {
+            case 'init':
+                this.init(data);
+                break;
+            case 'start':
+                this.start();
+                break;
+            case 'stop':
+                this.stop();
+                break;
+        }
+    }
+
+    init(data) {
+        Object.assign(this, {
+            ciphertext: data.ciphertext,
+            keyLength: data.keyLength,
+            alphabet: data.alphabet,
+            knownPlaintext: data.knownPlaintext,
+            workerId: data.workerId,
+            totalWorkers: data.totalWorkers
+        });
+
+        this.cipherChars = this.ciphertext.split('');
+        this.knownPlaintextUpper = this.knownPlaintext.toUpperCase();
+        this.keySpaceSize = Math.pow(this.alphabet.length, this.keyLength);
+        this.alphabetIndexMap = this.createAlphabetIndexMap();
+        this.initStartKey();
+    }
+
+    createAlphabetIndexMap() {
         const map = {};
         for (let i = 0; i < this.alphabet.length; i++) {
             map[this.alphabet[i]] = i;
@@ -92,114 +60,132 @@ class K4Worker {
         return map;
     }
 
-    generateKey(num) {
-        const key = new Array(this.keyLength);
-        const base = this.alphabet.length;
-        for (let i = this.keyLength - 1; i >= 0; i--) {
-            key[i] = this.alphabet[num % base];
-            num = Math.floor(num / base);
-        }
-        return key.join('');
+    initStartKey() {
+        // Распределение ключевого пространства между воркерами
+        const segmentSize = Math.ceil(this.keySpaceSize / this.totalWorkers);
+        const startIndex = this.workerId * segmentSize;
+        this.currentKey = this.indexToKey(startIndex);
     }
 
-    decrypt(key) {
-        let plaintext = '';
-        const cipherLen = this.ciphertext.length;
-        const keyLen = key.length;
+    indexToKey(index) {
+        let key = '';
+        let remaining = index % this.keySpaceSize;
         
-        for (let i = 0; i < cipherLen; i++) {
-            const cipherChar = this.ciphertext[i];
-            const keyChar = key[i % keyLen];
-            const plainPos = (this.charMap[cipherChar] - this.charMap[keyChar] + 26) % 26;
-            plaintext += this.alphabet[plainPos];
+        for (let i = 0; i < this.keyLength; i++) {
+            const power = Math.pow(this.alphabet.length, this.keyLength - i - 1);
+            const pos = Math.floor(remaining / power);
+            key += this.alphabet[pos % this.alphabet.length];
+            remaining %= power;
         }
-        return plaintext;
+        
+        return key;
     }
 
-    scoreText(text) {
-        let score = 0;
-        const upperText = text.toUpperCase();
-        const freq = new Uint16Array(26);
-        let totalLetters = 0;
-
-        // Оптимизированный частотный анализ
-        for (let i = 0; i < upperText.length; i++) {
-            const code = upperText.charCodeAt(i) - 65;
-            if (code >= 0 && code < 26) {
-                freq[code]++;
-                totalLetters++;
-            }
-        }
-
-        if (totalLetters > 0) {
-            for (let i = 0; i < 26; i++) {
-                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
-                const actual = (freq[i] / totalLetters) * 100;
-                score += 100 - Math.abs(expected - actual);
-            }
-        }
-
-        // Оптимизированный поиск паттернов
-        for (const [pattern, patternScore] of this.patternCache) {
-            let pos = -pattern.length;
-            while ((pos = upperText.indexOf(pattern, pos + pattern.length)) !== -1) {
-                score += patternScore;
-            }
-        }
-
-        return Math.round(score);
+    start() {
+        if (this.isRunning) return;
+        this.isRunning = true;
+        this.processBatch();
     }
 
-    async run() {
-        const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
-        const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
-        const start = this.workerId * keysPerWorker;
-        const end = Math.min(start + keysPerWorker, totalKeys);
-        const BATCH_SIZE = 100000; // Большие пакеты для ускорения
+    stop() {
+        this.isRunning = false;
+        self.postMessage({
+            type: 'complete',
+            keysTested: this.keysTested
+        });
+    }
 
-        while (this.running && start < end) {
-            const batchStart = start;
-            const batchEnd = Math.min(start + BATCH_SIZE, end);
+    processBatch() {
+        if (!this.isRunning) return;
 
-            for (let keyNum = batchStart; keyNum < batchEnd; keyNum++) {
-                const key = this.generateKey(keyNum);
-                const plaintext = this.decrypt(key);
-                const score = this.scoreText(plaintext);
+        const batchStart = performance.now();
+        let batchResults = [];
+        let processed = 0;
 
-                if (score > this.bestScore) {
-                    this.bestScore = score;
-                    this.bestKey = key;
-                    self.postMessage({
-                        type: 'result',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score
-                    });
-                }
-            }
-
-            this.keysTested += batchEnd - batchStart;
-            start = batchEnd;
-
-            // Отчет о прогрессе
-            if (performance.now() - this.lastReportTime > 100) {
-                self.postMessage({
-                    type: 'progress',
-                    keysTested: this.keysTested,
-                    kps: Math.round(this.keysTested / ((performance.now() - this.startTime) / 1000)),
-                    mode: this.mode
+        while (processed < this.batchSize && this.isRunning) {
+            const plaintext = this.decrypt(this.cipherChars, this.currentKey);
+            
+            // Только минимально необходимая проверка
+            if (this.knownPlaintextUpper && plaintext.includes(this.knownPlaintextUpper)) {
+                batchResults.push({
+                    key: this.currentKey,
+                    plaintext: plaintext,
+                    workerId: this.workerId
                 });
-                this.lastReportTime = performance.now();
             }
 
-            await new Promise(resolve => setTimeout(resolve, 0));
+            this.keysTested++;
+            processed++;
+            this.nextKey();
+
+            // Регулировка нагрузки для предотвращения блокировки
+            if (performance.now() - batchStart > 50) break;
         }
 
-        if (this.running) {
-            self.postMessage({type: 'complete'});
-            this.running = false;
+        if (batchResults.length > 0) {
+            self.postMessage({
+                type: 'result',
+                results: batchResults
+            });
         }
+
+        // Отчет о прогрессе каждые 1000 обработанных ключей
+        if (this.keysTested % 1000 === 0) {
+            self.postMessage({
+                type: 'progress',
+                keysTested: this.keysTested,
+                workerId: this.workerId
+            });
+        }
+
+        // Проверка завершения работы
+        if (this.keysTested >= Math.ceil(this.keySpaceSize / this.totalWorkers)) {
+            this.stop();
+            return;
+        }
+
+        // Продолжение обработки с минимальной задержкой
+        setTimeout(() => this.processBatch(), 0);
+    }
+
+    nextKey() {
+        let newKey = '';
+        let carry = 1;
+
+        for (let i = this.keyLength - 1; i >= 0; i--) {
+            const currentIndex = this.alphabetIndexMap[this.currentKey[i]];
+            const newIndex = (currentIndex + carry) % this.alphabet.length;
+            
+            newKey = this.alphabet[newIndex] + newKey;
+            carry = Math.floor((currentIndex + carry) / this.alphabet.length);
+            
+            if (carry === 0) {
+                newKey = this.currentKey.substring(0, i) + newKey;
+                break;
+            }
+        }
+
+        this.currentKey = carry > 0 ? 
+            this.indexToKey(this.workerId * Math.ceil(this.keySpaceSize / this.totalWorkers)) : 
+            newKey;
+    }
+
+    decrypt(cipherChars, key) {
+        const keyChars = key.split('');
+        const keyLength = key.length;
+        const alphabetLength = this.alphabet.length;
+        let plaintext = '';
+        
+        for (let i = 0; i < cipherChars.length; i++) {
+            const cipherIndex = this.alphabetIndexMap[cipherChars[i]];
+            const keyIndex = this.alphabetIndexMap[keyChars[i % keyLength]];
+            const plainIndex = (cipherIndex - keyIndex + alphabetLength) % alphabetLength;
+            plaintext += this.alphabet[plainIndex];
+        }
+        
+        return plaintext;
     }
 }
 
-new K4Worker();
+// Инициализация воркера
+const worker = new K4Worker();
