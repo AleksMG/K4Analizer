@@ -28,7 +28,7 @@ const uncommonPatterns = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
-        this.charMap = new Uint8Array(256);
+        this.charMap = {};
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
@@ -51,9 +51,9 @@ class K4Worker {
         this.primaryTargetFound = false;
         this.primaryResults = [];
 
-        this.charMap.fill(255);
+        // Initialize charMap
         for (let i = 0; i < this.alphabet.length; i++) {
-            this.charMap[this.alphabet.charCodeAt(i)] = i;
+            this.charMap[this.alphabet[i]] = i;
         }
 
         self.onmessage = (e) => {
@@ -110,9 +110,11 @@ class K4Worker {
 
     decrypt(key) {
         let plaintext = '';
-        for (let i = 0; i < this.ciphertext.length; i++) {
-            const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
-                           this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+        const keyLen = key.length;
+        const cipherLen = this.ciphertext.length;
+        
+        for (let i = 0; i < cipherLen; i++) {
+            const plainPos = (this.charMap[this.ciphertext[i]] - this.charMap[key[i % keyLen]] + 26) % 26;
             plaintext += this.alphabet[plainPos];
         }
         return plaintext;
@@ -125,10 +127,10 @@ class K4Worker {
         }
 
         let score = 0;
-        const freq = new Uint16Array(26);
+        const freq = new Array(26).fill(0);
         let totalLetters = 0;
 
-        // Частотный анализ
+        // Frequency analysis
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
             if (code >= 65 && code <= 90) {
@@ -145,18 +147,20 @@ class K4Worker {
             }
         }
 
-        // Поиск распространенных слов
+        // Common patterns
         for (const pattern of commonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                if (pos === -1) break;
                 score += pattern.length * 25;
             }
         }
 
-        // Поиск специальных слов
+        // Special patterns
         for (const pattern of uncommonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                if (pos === -1) break;
                 score += pattern.length * 50;
             }
         }
@@ -186,7 +190,6 @@ class K4Worker {
                     break;
             }
             
-            // Проверка завершения
             if (this.keysTested >= (endKey - startKey)) {
                 this.completed = true;
                 this.running = false;
@@ -288,9 +291,10 @@ class K4Worker {
 
         for (let pos = 0; pos < this.keyLength && this.running; pos++) {
             const originalChar = keyChars[pos];
+            const originalPos = this.charMap[originalChar];
+            
             for (const delta of [-1, 1, -2, 2, -3, 3]) {
-                const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
-                const newChar = this.alphabet[newCharCode];
+                const newChar = this.alphabet[(originalPos + delta + 26) % 26];
                 keyChars[pos] = newChar;
                 const newKey = keyChars.join('');
                 
