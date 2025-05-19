@@ -1,210 +1,166 @@
-// worker.js - Полностью совместимый с вашим K4Decryptor
+// worker.js - 100% совместим с вашим K4Decryptor.js
 class K4Worker {
     constructor() {
-        this.workerId = 0;
-        this.totalWorkers = 1;
-        this.keysTested = 0;
-        this.isRunning = false;
-        this.lastUpdate = 0;
-        this.updateInterval = 200; // Частота обновлений (мс)
-
-        // Параметры дешифрования
+        // Параметры из главного файла
         this.ciphertext = '';
         this.keyLength = 0;
         this.alphabet = '';
         this.knownPlaintext = '';
+        this.workerId = 0;
+        this.totalWorkers = 1;
         
-        // Оптимизации
+        // Состояние
+        this.keysTested = 0;
+        this.isRunning = false;
+        this.currentKey = null;
         this.alphabetIndices = {};
-        this.cipherIndices = [];
-        this.keyIndices = [];
-        this.currentKey = '';
-
+        
+        // Обработчик сообщений
         self.onmessage = (e) => this.handleMessage(e.data);
     }
 
     handleMessage(data) {
         switch (data.type) {
             case 'init':
-                this.initialize(data);
+                this.ciphertext = data.ciphertext;
+                this.keyLength = parseInt(data.keyLength);
+                this.alphabet = data.alphabet;
+                this.knownPlaintext = data.knownPlaintext?.toUpperCase() || '';
+                this.workerId = parseInt(data.workerId);
+                this.totalWorkers = parseInt(data.totalWorkers);
+                this.prepare();
                 break;
+                
             case 'start':
-                this.startDecryption();
+                if (!this.isRunning) {
+                    this.isRunning = true;
+                    this.process();
+                }
                 break;
+                
             case 'stop':
-                this.stopDecryption();
+                this.isRunning = false;
+                self.postMessage({
+                    type: 'complete',
+                    keysTested: this.keysTested
+                });
                 break;
         }
     }
 
-    initialize(params) {
-        this.ciphertext = params.ciphertext;
-        this.keyLength = parseInt(params.keyLength);
-        this.alphabet = params.alphabet;
-        this.knownPlaintext = params.knownPlaintext?.toUpperCase() || '';
-        this.workerId = parseInt(params.workerId);
-        this.totalWorkers = parseInt(params.totalWorkers);
-
-        // Предварительные вычисления
-        this.alphabetIndices = this.buildAlphabetMap();
-        this.cipherIndices = this.mapTextToIndices(this.ciphertext);
-        this.initializeKeySpace();
-    }
-
-    buildAlphabetMap() {
-        const map = {};
+    prepare() {
+        // Инициализация алфавита
+        this.alphabetIndices = {};
         for (let i = 0; i < this.alphabet.length; i++) {
-            map[this.alphabet[i]] = i;
+            this.alphabetIndices[this.alphabet[i]] = i;
         }
-        return map;
-    }
-
-    mapTextToIndices(text) {
-        return text.split('').map(c => this.alphabetIndices[c]);
-    }
-
-    initializeKeySpace() {
+        
+        // Начальный ключ для этого воркера
         const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
         const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
         const startIndex = this.workerId * keysPerWorker;
-        
-        this.keyIndices = this.indexToKeyIndices(startIndex);
-        this.currentKey = this.indicesToKey(this.keyIndices);
+        this.currentKey = this.indexToKey(startIndex);
     }
 
-    indexToKeyIndices(index) {
-        const indices = [];
+    indexToKey(index) {
+        let key = '';
         let remaining = index;
-        
         for (let i = 0; i < this.keyLength; i++) {
             const power = Math.pow(this.alphabet.length, this.keyLength - i - 1);
-            indices.push(Math.floor(remaining / power) % this.alphabet.length);
+            const pos = Math.floor(remaining / power);
+            key += this.alphabet[pos % this.alphabet.length];
             remaining %= power;
         }
-        
-        return indices;
+        return key;
     }
 
-    indicesToKey(indices) {
-        return indices.map(i => this.alphabet[i]).join('');
-    }
-
-    startDecryption() {
-        if (this.isRunning) return;
-        
-        this.isRunning = true;
-        this.lastUpdate = performance.now();
-        this.decryptBatch();
-    }
-
-    stopDecryption() {
-        this.isRunning = false;
-        this.sendProgress(); // Финальное обновление
-        self.postMessage({ type: 'complete', keysTested: this.keysTested });
-    }
-
-    decryptBatch() {
+    process() {
         if (!this.isRunning) return;
 
         const batchStart = performance.now();
-        let batchCount = 0;
-        const maxBatchTime = 30; // мс
+        let batchResults = [];
+        let processed = 0;
 
-        while (this.isRunning && batchCount < 50000) {
-            const plaintext = this.decryptWithCurrentKey();
+        while (this.isRunning && processed < 50000) {
+            const plaintext = this.decrypt(this.currentKey);
             
-            if (this.checkForKnownText(plaintext)) {
-                self.postMessage({
-                    type: 'result',
+            // Только базовая проверка на knownPlaintext
+            if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
+                batchResults.push({
                     key: this.currentKey,
                     plaintext: plaintext,
-                    score: this.quickScore(plaintext),
                     workerId: this.workerId
                 });
             }
 
             this.keysTested++;
-            batchCount++;
+            processed++;
             this.nextKey();
 
-            if (performance.now() - batchStart > maxBatchTime) break;
+            if (performance.now() - batchStart > 50) break;
         }
 
-        // Регулярные обновления прогресса
-        if (performance.now() - this.lastUpdate >= this.updateInterval) {
-            this.sendProgress();
+        // Отправка результатов
+        if (batchResults.length > 0) {
+            self.postMessage({
+                type: 'result',
+                results: batchResults
+            });
         }
 
-        // Проверка завершения
-        const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
-        const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
-        
-        if (this.keysTested >= keysPerWorker) {
-            this.stopDecryption();
-            return;
-        }
-
-        // Продолжение обработки
-        setTimeout(() => this.decryptBatch(), 0);
-    }
-
-    sendProgress() {
-        this.lastUpdate = performance.now();
+        // Регулярный отчет о прогрессе
         self.postMessage({
             type: 'progress',
             keysTested: this.keysTested,
             workerId: this.workerId
         });
+
+        // Проверка завершения
+        const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
+        if (this.keysTested >= Math.ceil(totalKeys / this.totalWorkers)) {
+            this.stop();
+            return;
+        }
+
+        // Следующая итерация
+        setTimeout(() => this.process(), 0);
     }
 
-    decryptWithCurrentKey() {
-        const keyLength = this.keyLength;
-        const alphabetSize = this.alphabet.length;
+    decrypt(key) {
+        const keyIndices = key.split('').map(c => this.alphabetIndices[c] || 0);
         let plaintext = '';
         
-        for (let i = 0; i < this.cipherIndices.length; i++) {
-            const cipherIdx = this.cipherIndices[i];
-            const keyIdx = this.keyIndices[i % keyLength];
-            const plainIdx = (cipherIdx - keyIdx + alphabetSize) % alphabetSize;
+        for (let i = 0; i < this.ciphertext.length; i++) {
+            const cipherIdx = this.alphabetIndices[this.ciphertext[i]] || 0;
+            const keyIdx = keyIndices[i % this.keyLength];
+            const plainIdx = (cipherIdx - keyIdx + this.alphabet.length) % this.alphabet.length;
             plaintext += this.alphabet[plainIdx];
         }
         
         return plaintext;
     }
 
-    checkForKnownText(plaintext) {
-        return this.knownPlaintext && plaintext.includes(this.knownPlaintext);
-    }
-
-    quickScore(plaintext) {
-        // Минимальная оценка только для базовой фильтрации
-        return this.knownPlaintext ? 
-            (plaintext.match(new RegExp(this.knownPlaintext, 'g')) || []).length * 100 : 0;
-    }
-
     nextKey() {
+        let newKey = '';
         let carry = 1;
         
         for (let i = this.keyLength - 1; i >= 0; i--) {
-            this.keyIndices[i] += carry;
-            carry = Math.floor(this.keyIndices[i] / this.alphabet.length);
-            this.keyIndices[i] %= this.alphabet.length;
+            const currentIdx = this.alphabetIndices[this.currentKey[i]];
+            const newIdx = (currentIdx + carry) % this.alphabet.length;
+            newKey = this.alphabet[newIdx] + newKey;
+            carry = Math.floor((currentIdx + carry) / this.alphabet.length);
             
-            if (carry === 0) break;
+            if (carry === 0) {
+                newKey = this.currentKey.substring(0, i) + newKey;
+                break;
+            }
         }
-
-        this.currentKey = this.indicesToKey(this.keyIndices);
         
-        // Переполнение - начинаем сначала своего сегмента
-        if (carry > 0) {
-            const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
-            const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
-            const startIndex = this.workerId * keysPerWorker;
-            this.keyIndices = this.indexToKeyIndices(startIndex);
-            this.currentKey = this.indicesToKey(this.keyIndices);
-        }
+        this.currentKey = carry > 0 ? 
+            this.indexToKey(this.workerId * Math.ceil(Math.pow(this.alphabet.length, this.keyLength) / this.totalWorkers)) : 
+            newKey;
     }
 }
 
-// Инициализация воркера
-const worker = new K4Worker();
+// Инициализация
+new K4Worker();
