@@ -41,8 +41,8 @@ this.uncommonPatterns = [
         this.scoreCache = new Map();          // Кеш результатов оценки
         this.batchResults = [];               // Буфер для пакетной обработки
         this.lastScoreUpdate = 0;             // Время последнего обновления
-        this.scoreUpdateInterval = 2000;       // Интервал обновления (мс)
-        this.batchSize = 20000;                // Размер пачки
+        this.scoreUpdateInterval = 5000;       // Интервал обновления (мс)
+        this.batchSize = 100000;                // Размер пачки
 
         this.initElements();
         this.initEventListeners();
