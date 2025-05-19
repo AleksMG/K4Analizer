@@ -33,7 +33,7 @@ class K4Worker {
         this.ciphertext = '';
         this.keyLength = 0;
         this.workerId = 0;
-        this.totalWorkers = 1;
+        this.totalWorkers = 16;
         this.keysTested = 0;
         this.startTime = 0;
         this.lastReportTime = 0;
