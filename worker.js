@@ -42,16 +42,7 @@ class K4Worker {
         this.stuckCount = 0;
         this.mode = 'scan';
         this.lastImprovementTime = 0;
-        this.optimizePositions = [];
         this.maxKeys = 0;
-        this.keysInOptimizeMode = 0;
-        
-        this.primaryTarget = '';
-        this.primarySearchActive = true;
-        this.primarySearchInterval = 100;
-        this.lastPrimarySearchTime = 0;
-        this.primaryResults = [];
-        this.primarySearchBatchSize = 1000;
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -67,12 +58,9 @@ class K4Worker {
                     this.workerId = msg.workerId || 0;
                     this.totalWorkers = msg.totalWorkers || 1;
                     this.keysTested = 0;
-                    this.keysInOptimizeMode = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
-                    this.primarySearchActive = true;
-                    this.primaryResults = [];
-                    this.maxKeys = Math.pow(26, this.keyLength) / this.totalWorkers;
+                    this.maxKeys = Math.pow(26, this.keyLength);
                     break;
                 case 'start':
                     if (!this.running) {
@@ -92,19 +80,11 @@ class K4Worker {
                         this.lastImprovementTime = performance.now();
                     }
                     break;
-                case 'togglePrimarySearch':
-                    this.primarySearchActive = msg.active;
-                    break;
             }
         };
     }
 
     generateKey(num) {
-        const maxPossible = Math.pow(26, this.keyLength);
-        if (num >= maxPossible) {
-            num = num % maxPossible;
-        }
-        
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
             key[i] = this.alphabet[num % 26];
@@ -125,12 +105,6 @@ class K4Worker {
 
     scoreText(text) {
         const upperText = text.toUpperCase();
-        
-        if (this.primarySearchActive && upperText.includes(this.primaryTarget)) {
-            const specialScore = 1000 + (this.primaryTarget.length * 100);
-            return specialScore;
-        }
-
         let score = 0;
         const freq = new Uint16Array(26);
         let totalLetters = 0;
@@ -173,13 +147,7 @@ class K4Worker {
         const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
 
-        while (this.running && (this.keysTested + this.keysInOptimizeMode) < (endKey - startKey)) {
-            if (this.primarySearchActive && 
-                performance.now() - this.lastPrimarySearchTime > this.primarySearchInterval) {
-                this.lastPrimarySearchTime = performance.now();
-                await this.searchPrimaryBatch(startKey, endKey);
-            }
-
+        while (this.running && this.keysTested < (endKey - startKey)) {
             switch (this.mode) {
                 case 'scan':
                     await this.fullScan(startKey, endKey);
@@ -195,37 +163,12 @@ class K4Worker {
             this.checkProgress();
         }
 
-        if ((this.keysTested + this.keysInOptimizeMode) >= (endKey - startKey)) {
+        if (this.keysTested >= (endKey - startKey)) {
             self.postMessage({
                 type: 'completed',
                 message: 'All keys have been tested'
             });
             this.running = false;
-        }
-    }
-
-    async searchPrimaryBatch(startKey, endKey) {
-        const batchSize = this.primarySearchBatchSize;
-        const keyRange = endKey - startKey;
-        
-        for (let i = 0; i < batchSize && this.running && this.keysTested < keyRange; i++) {
-            const randomKeyNum = startKey + Math.floor(Math.random() * keyRange);
-            const key = this.generateKey(randomKeyNum);
-            const plaintext = this.decrypt(key);
-            
-            if (plaintext.includes(this.primaryTarget)) {
-                const score = this.scoreText(plaintext);
-                this.primaryResults.push({ key, plaintext, score });
-                
-                self.postMessage({
-                    type: 'primaryResult',
-                    key: key,
-                    plaintext: plaintext,
-                    score: score
-                });
-            }
-            
-            this.keysTested++;
         }
     }
 
@@ -273,7 +216,7 @@ class K4Worker {
                 const newKey = keyChars.join('');
                 const plaintext = this.decrypt(newKey);
                 const score = this.scoreText(plaintext);
-                this.keysInOptimizeMode++;
+                this.keysTested++;
 
                 if (score > this.bestScore) {
                     this.bestScore = score;
@@ -309,7 +252,7 @@ class K4Worker {
         const randomKey = this.generateKey(randomKeyNum);
         const plaintext = this.decrypt(randomKey);
         const score = this.scoreText(plaintext);
-        this.keysInOptimizeMode++;
+        this.keysTested++;
 
         if (score > this.bestScore * 0.8) {
             this.mode = 'optimize';
@@ -322,15 +265,13 @@ class K4Worker {
         const now = performance.now();
         if (now - this.lastReportTime > 1000) {
             const elapsed = (now - this.startTime) / 1000;
-            const totalProcessed = this.keysTested + this.keysInOptimizeMode;
-            const kps = elapsed > 0 ? Math.round(totalProcessed / elapsed) : 0;
+            const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
             
             self.postMessage({
                 type: 'progress',
-                keysTested: totalProcessed,
+                keysTested: this.keysTested,
                 kps: kps,
-                mode: this.mode,
-                primarySearchActive: this.primarySearchActive
+                mode: this.mode
             });
             
             this.lastReportTime = now;
