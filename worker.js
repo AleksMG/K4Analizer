@@ -35,15 +35,10 @@ class K4Worker {
         this.bestScore = -Infinity;
         this.bestKey = '';
         this.stuckCount = 0;
-        this.mode = 'scan';
+        this.mode = 'turbo'; // Новый режим
         this.lastImprovementTime = 0;
-        this.optimizePositions = [];
-        
-        // Добавленные параметры (без удаления вашего кода)
-        this.knownPlaintext = 'CLOCK';
-        this.quickCheckMode = true;
-        this.minimalScoreThreshold = 50; // Порог для вывода любых результатов
-        this.forceOutputCounter = 0;
+        this.forceOutputInterval = 250; // Принудительный вывод каждые 250мс
+        this.knownPlaintext = '';
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -58,9 +53,8 @@ class K4Worker {
                     this.keyLength = msg.keyLength;
                     this.workerId = msg.workerId || 0;
                     this.totalWorkers = msg.totalWorkers || 1;
-                    this.keysTested = 0;
-                    this.bestScore = -Infinity;
-                    this.bestKey = this.generateKey(0);
+                    this.knownPlaintext = (msg.knownPlaintext || '').toUpperCase();
+                    this.reset();
                     break;
                 case 'start':
                     if (!this.running) {
@@ -73,14 +67,15 @@ class K4Worker {
                 case 'stop':
                     this.running = false;
                     break;
-                case 'setKnownPlaintext':
-                    this.knownPlaintext = msg.text.toUpperCase();
-                    break;
-                case 'setQuickMode':
-                    this.quickCheckMode = msg.enabled;
-                    break;
             }
         };
+    }
+
+    reset() {
+        this.keysTested = 0;
+        this.bestScore = -Infinity;
+        this.bestKey = this.generateKey(0);
+        this.startTime = 0;
     }
 
     generateKey(num) {
@@ -102,29 +97,35 @@ class K4Worker {
         return plaintext;
     }
 
-    scoreText(text) {
-        // 1. Экспресс-проверка на известный текст
-        if (this.knownPlaintext && text.includes(this.knownPlaintext)) {
+    turboScore(text) {
+        const upperText = text.toUpperCase();
+        
+        // 1. Молниеносная проверка известного текста
+        if (this.knownPlaintext && upperText.includes(this.knownPlaintext)) {
             return 10000;
         }
 
-        // 2. Быстрая проверка триграмм в quick mode
-        if (this.quickCheckMode) {
-            let quickScore = 0;
-            const upperText = text.toUpperCase();
-            
-            for (const pattern of uncommonPatterns) {
-                if (upperText.includes(pattern)) {
-                    quickScore += pattern.length * 100;
-                }
+        // 2. Быстрая проверка триграмм
+        let score = 0;
+        for (const pattern of uncommonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 100;
+                if (score > 300) return score; // Ранний выход
             }
-            
-            if (quickScore > 0) return quickScore;
         }
 
-        // 3. Ваш оригинальный метод оценки (без изменений)
+        // 3. Проверка частых слов
+        for (const pattern of commonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 50;
+            }
+        }
+
+        return score > 0 ? score : this.fullScore(text); // Полный анализ только если нет совпадений
+    }
+
+    fullScore(text) {
         let score = 0;
-        const upperText = text.toUpperCase();
         const freq = new Uint16Array(26);
         let totalLetters = 0;
 
@@ -144,74 +145,70 @@ class K4Worker {
             }
         }
 
-        for (const pattern of commonPatterns) {
-            if (upperText.includes(pattern)) {
-                score += pattern.length * 25;
-            }
-        }
-
-        for (const pattern of uncommonPatterns) {
-            if (upperText.includes(pattern)) {
-                score += pattern.length * 50;
-            }
-        }
-
         return Math.round(score);
     }
 
     async run() {
         const totalKeys = Math.pow(26, this.keyLength);
-        const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
-        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
+        const keysPerWorker = Math.floor(totalKeys / this.totalWorkers);
+        const startKey = this.workerId * keysPerWorker;
+        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + keysPerWorker;
 
         while (this.running) {
-            await this.aggressiveScan(startKey, endKey);
+            await this.turboScan(startKey, endKey);
             this.checkProgress();
         }
     }
 
-    async aggressiveScan(startKey, endKey) {
-        const BLOCK_SIZE = 500000; // Больший блок для скорости
-        for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
-            if (!this.running) break;
+    async turboScan(startKey, endKey) {
+        const BLOCK_SIZE = 1000000; // 1M ключей за итерацию
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-
+            
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
                 const plaintext = this.decrypt(key);
-                const score = this.scoreText(plaintext);
+                const score = this.turboScore(plaintext);
                 this.keysTested++;
 
-                // Агрессивный вывод результатов
-                if (score >= this.minimalScoreThreshold || this.keysTested % 250000 === 0) {
-                    self.postMessage({
-                        type: 'result',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score,
-                        isForced: score < this.bestScore
-                    });
-                }
-
-                if (score > this.bestScore) {
-                    this.bestScore = score;
-                    this.bestKey = key;
-                    this.lastImprovementTime = performance.now();
+                if (score >= 200 || performance.now() - this.lastReportTime > this.forceOutputInterval) {
+                    this.reportResult(key, plaintext, score);
                 }
             }
         }
     }
 
+    reportResult(key, plaintext, score) {
+        if (score > this.bestScore) {
+            this.bestScore = score;
+            this.bestKey = key;
+            this.lastImprovementTime = performance.now();
+        }
+
+        self.postMessage({
+            type: 'result',
+            key: key,
+            plaintext: plaintext,
+            score: score,
+            isBest: score === this.bestScore,
+            keysTested: this.keysTested
+        });
+    }
+
     checkProgress() {
         const now = performance.now();
-        if (now - this.lastReportTime > 1000) {
-            const kps = Math.round(this.keysTested / ((now - this.startTime) / 1000));
+        if (now - this.lastReportTime >= 1000) {
+            const elapsed = (now - this.startTime) / 1000;
+            const kps = Math.round(this.keysTested / elapsed);
+            
             self.postMessage({
                 type: 'progress',
                 keysTested: this.keysTested,
                 kps: kps,
-                bestScore: this.bestScore
+                bestScore: this.bestScore,
+                elapsed: elapsed.toFixed(1)
             });
+            
             this.lastReportTime = now;
         }
     }
