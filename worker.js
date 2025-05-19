@@ -7,12 +7,21 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
-const commonPatterns = ['THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY'];
-const uncommonPatterns = ['BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST', 'SOUTH'];
+const commonPatterns = [
+    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
+    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA'
+];
+
+const uncommonPatterns = [
+    'BERLIN', 'CLOCK', 'EAST', 'NORTH', 'WEST', 'SOUTH', 'NORTHEAST', 
+    'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'SECRET', 'CODE', 'MESSAGE', 
+    'KRYPTOS', 'BERLINCLOCK', 'AGENT', 'COMPASS', 'LIGHT', 'LATITUDE',
+    'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND'
+];
 
 class K4Worker {
     constructor() {
-        // Инициализация алфавита и таблицы символов
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.charMap.fill(255);
@@ -20,7 +29,6 @@ class K4Worker {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        // Состояние воркера
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
@@ -32,14 +40,11 @@ class K4Worker {
         this.bestKey = '';
         this.lastReportTime = 0;
         
-        // Улучшенное распределение работы
-        this.currentBaseKey = 0;
-        this.totalSegments = 1000;
-        this.segmentSize = 0;
-        this.segmentsCompleted = 0;
-        this.randomJumpCounter = 0;
+        // Оптимизированные параметры
+        this.keysPerBlock = 25000; // Увеличенный размер блока
+        this.currentBase = 0;
+        this.keySpace = 0;
 
-        // Обработчик сообщений
         self.onmessage = (e) => {
             const msg = e.data;
             switch (msg.type) {
@@ -52,9 +57,6 @@ class K4Worker {
                 case 'stop':
                     this.running = false;
                     break;
-                case 'updateSettings':
-                    this.updateSettings(msg.settings);
-                    break;
             }
         };
     }
@@ -64,12 +66,8 @@ class K4Worker {
         this.keyLength = msg.keyLength;
         this.workerId = msg.workerId || 0;
         this.totalWorkers = msg.totalWorkers || 1;
-        this.keysTested = 0;
-        this.bestScore = 0;
-        
-        const totalKeys = Math.pow(26, this.keyLength);
-        this.segmentSize = Math.ceil(totalKeys / this.totalSegments);
-        this.currentBaseKey = this.workerId * this.segmentSize;
+        this.keySpace = Math.pow(26, this.keyLength);
+        this.currentBase = this.workerId;
     }
 
     handleStart() {
@@ -80,36 +78,15 @@ class K4Worker {
         }
     }
 
-    updateSettings(settings) {
-        if (settings.totalSegments) {
-            this.totalSegments = settings.totalSegments;
-            const totalKeys = Math.pow(26, this.keyLength);
-            this.segmentSize = Math.ceil(totalKeys / this.totalSegments);
-        }
-        if (settings.keysPerBlock) {
-            this.keysPerBlock = settings.keysPerBlock;
-        }
-    }
-
     async run() {
-        const totalKeys = Math.pow(26, this.keyLength);
-        
-        while (this.running && this.segmentsCompleted < this.totalSegments) {
-            const segmentStart = this.currentBaseKey;
-            const segmentEnd = Math.min(segmentStart + this.segmentSize, totalKeys);
+        while (this.running && this.currentBase < this.keySpace) {
+            const blockStart = this.currentBase;
+            const blockEnd = Math.min(blockStart + this.keysPerBlock * this.totalWorkers, this.keySpace);
             
-            await this.processSegment(segmentStart, segmentEnd);
+            await this.processBlock(blockStart, blockEnd);
             
-            // Переход к следующему сегменту с учетом количества воркеров
-            this.currentBaseKey += this.totalWorkers * this.segmentSize;
-            this.segmentsCompleted++;
-            this.randomJumpCounter++;
-            
-            // Периодический случайный прыжок для диверсификации
-            if (this.randomJumpCounter >= 10) {
-                this.currentBaseKey = Math.floor(Math.random() * totalKeys);
-                this.randomJumpCounter = 0;
-            }
+            this.currentBase += this.keysPerBlock * this.totalWorkers;
+            this.reportProgress();
         }
         
         self.postMessage({
@@ -119,45 +96,34 @@ class K4Worker {
         });
     }
 
-    async processSegment(startKey, endKey) {
-        const BLOCK_SIZE = 5000;
+    async processBlock(blockStart, blockEnd) {
         const localBest = {score: -1, key: '', plaintext: ''};
         
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            
-            for (let i = keyNum; i < blockEnd; i++) {
-                const key = this.generateKey(i);
-                const plaintext = this.decrypt(key);
-                const score = this.scoreText(plaintext);
-                this.keysTested++;
+        for (let keyNum = blockStart + this.workerId; keyNum < blockEnd; keyNum += this.totalWorkers) {
+            const key = this.generateKey(keyNum);
+            const plaintext = this.decrypt(key);
+            const score = this.scoreText(plaintext);
+            this.keysTested++;
 
-                if (score > localBest.score) {
-                    localBest.score = score;
-                    localBest.key = key;
-                    localBest.plaintext = plaintext;
-                }
+            if (score > localBest.score) {
+                localBest.score = score;
+                localBest.key = key;
+                localBest.plaintext = plaintext;
             }
+        }
+        
+        if (localBest.score > this.bestScore) {
+            this.bestScore = localBest.score;
+            this.bestKey = localBest.key;
             
-            // Отправляем лучший результат из блока, если он лучше глобального
-            if (localBest.score > this.bestScore) {
-                this.bestScore = localBest.score;
-                this.bestKey = localBest.key;
-                
-                const foundWords = this.extractWords(localBest.plaintext);
-                self.postMessage({
-                    type: 'result',
-                    workerId: this.workerId,
-                    key: localBest.key,
-                    plaintext: localBest.plaintext,
-                    score: localBest.score,
-                    words: foundWords,
-                    progress: this.getProgress()
-                });
-            }
-            
-            this.reportProgress();
-            await new Promise(resolve => setTimeout(resolve, 0)); // Даем дыхать event loop
+            self.postMessage({
+                type: 'result',
+                workerId: this.workerId,
+                key: localBest.key,
+                plaintext: localBest.plaintext,
+                score: localBest.score,
+                words: this.extractWords(localBest.plaintext)
+            });
         }
     }
 
@@ -172,10 +138,16 @@ class K4Worker {
 
     decrypt(key) {
         let plaintext = '';
+        const keyCodes = new Uint8Array(this.keyLength);
+        for (let i = 0; i < this.keyLength; i++) {
+            keyCodes[i] = this.charMap[key.charCodeAt(i)];
+        }
+
         for (let i = 0; i < this.ciphertext.length; i++) {
-            const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
-                           this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
-            plaintext += this.alphabet[plainPos];
+            const cipherCode = this.charMap[this.ciphertext.charCodeAt(i)];
+            const keyCode = keyCodes[i % this.keyLength];
+            const plainPos = (cipherCode - keyCode + 26) % 26;
+            plaintext += String.fromCharCode(this.alphabet.charCodeAt(plainPos));
         }
         return plaintext;
     }
@@ -183,10 +155,10 @@ class K4Worker {
     scoreText(text) {
         let score = 0;
         const upperText = text.toUpperCase();
-        
-        // Проверка частот символов
         const freq = new Uint16Array(26);
         let totalLetters = 0;
+
+        // Частоты символов
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i) - 65;
             if (code >= 0 && code <= 25) {
@@ -194,7 +166,7 @@ class K4Worker {
                 totalLetters++;
             }
         }
-        
+
         if (totalLetters > 0) {
             for (let i = 0; i < 26; i++) {
                 const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
@@ -202,15 +174,15 @@ class K4Worker {
                 score += 100 - Math.abs(expected - actual);
             }
         }
-        
-        // Проверка паттернов
+
+        // Паттерны
         for (const pattern of [...commonPatterns, ...uncommonPatterns]) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
                 score += pattern.length * (uncommonPatterns.includes(pattern) ? 50 : 25);
             }
         }
-        
+
         return Math.round(score);
     }
 
@@ -221,17 +193,11 @@ class K4Worker {
         for (const pattern of [...commonPatterns, ...uncommonPatterns]) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
-                if (!foundWords[pattern]) foundWords[pattern] = 0;
-                foundWords[pattern]++;
+                foundWords[pattern] = (foundWords[pattern] || 0) + 1;
             }
         }
         
         return foundWords;
-    }
-
-    getProgress() {
-        const totalKeys = Math.pow(26, this.keyLength);
-        return this.keysTested / totalKeys;
     }
 
     reportProgress() {
@@ -242,8 +208,7 @@ class K4Worker {
                 workerId: this.workerId,
                 keysTested: this.keysTested,
                 kps: Math.round(this.keysTested / ((now - this.startTime) / 1000)),
-                segmentsCompleted: this.segmentsCompleted,
-                currentBaseKey: this.currentBaseKey
+                progress: (this.currentBase / this.keySpace) * 100
             });
             this.lastReportTime = now;
         }
