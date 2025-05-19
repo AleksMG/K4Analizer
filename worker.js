@@ -10,7 +10,7 @@ const ENGLISH_FREQ = {
 const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
-    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NSA', 'FBI', 'USA', 'UK', 'RUS',
+    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NASA', 'FBI', 'USA', 'RUS',
     'AGENT', 'CODE', 'SECRET', 'MESSAGE', 'INFORMATION', 'INTELLIGENCE', 'GOVERNMENT',
     'WASHINGTON', 'LONDON', 'MOSCOW', 'BERLIN', 'PARIS', 'AMERICA', 'RUSSIA', 'ENGLAND',
     'GERMANY', 'FRANCE', 'EUROPE', 'WORLD', 'COUNTRY', 'CITY', 'TOWN', 'VILLAGE',
@@ -24,9 +24,9 @@ const uncommonPatterns = [
     'ABSCISSA', 'ILLUMINATION', 'CLOCKWISE', 'COUNTERCLOCKWISE', 'DIAGONAL', 'VERTICAL',
     'HORIZONTAL', 'OBELISK', 'PYRAMID', 'SCULPTURE', 'CIPHER', 'ENCRYPT', 'DECRYPT',
     'VIGENERE', 'SUBSTITUTION', 'TRANSPOSITION', 'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY',
-    'DESPARATELY', 'WEAKLY', 'IDBY', 'JIMSANBORN', 'SANBORN', 'SCRATCHES', 'SHADOWS',
+    'DESPARATELY', 'WEAKLY', 'JIMSANBORN', 'SANBORN', 'SCRATCHES', 'SHADOWS',
     'LAYER', 'LAYERED', 'QUESTION', 'ANSWER', 'SOLUTION', 'MYSTER', 'HIDDEN', 'COVER',
-    'UNCOVER', 'REVEAL', 'TRUTH', 'LIE', 'DECEPTION', 'OMISSION', 'REDACTED', 'CLASSIFIED',
+    'UNCOVER', 'REVEAL', 'TRUTH', 'DECEPTION', 'OMISSION', 'REDACTED', 'CLASSIFIED',
     'TOPSECRET', 'CONFIDENTIAL', 'RESTRICTED', 'EYESONLY', 'FORYOUREYESONLY'
 ];
 
@@ -48,7 +48,7 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
-        this.targetText = ''; // Новое поле для хранения целевого текста
+        this.targetText = 'BERLINCLOCK'; // Новое поле для хранения целевого текста
         this.targetTextFound = false;
         this.parallelWorkers = [];
         this.currentTask = null;
