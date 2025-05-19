@@ -39,60 +39,117 @@ class K4Worker {
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
 
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
-        this.primaryTarget = 'BERLINCLOCK';
-        this.primarySearchDone = false;
+        // Добавленные поля для поиска BERLINCLOCK
+        this.primaryTarget = "BERLINCLOCK";
+        this.isPrimaryWorker = false;
         this.primaryResults = [];
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
+        this.primarySearchDone = false;
+        this.targetCodes = Array.from(this.primaryTarget).map(c => this.charMap[c.charCodeAt(0)]);
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
-        self.onmessage = (e) => {
-            const msg = e.data;
-            switch (msg.type) {
-                case 'init':
-                    this.ciphertext = msg.ciphertext;
-                    this.keyLength = msg.keyLength;
-                    this.workerId = msg.workerId || 0;
-                    this.totalWorkers = msg.totalWorkers || 1;
-                    this.keysTested = 0;
-                    this.bestScore = 0;
-                    this.bestKey = this.generateKey(0);
-                    // +++ ДОБАВЛЕНО НАЧАЛО +++
-                    this.primarySearchDone = false;
-                    this.primaryResults = [];
-                    // +++ ДОБАВЛЕНО КОНЕЦ +++
-                    break;
-                case 'start':
-                    if (!this.running) {
-                        this.running = true;
-                        this.startTime = performance.now();
-                        this.lastImprovementTime = this.startTime;
-                        // +++ ИЗМЕНЕНО НАЧАЛО +++
-                        if (!this.primarySearchDone) {
-                            this.mode = 'primarySearch';
-                        }
-                        // +++ ИЗМЕНЕНО КОНЕЦ +++
-                        this.run();
-                    }
-                    break;
-                case 'stop':
-                    this.running = false;
-                    break;
-                case 'updateBestKey':
-                    if (msg.score > this.bestScore) {
-                        this.bestScore = msg.score;
-                        this.bestKey = msg.key;
-                        this.lastImprovementTime = performance.now();
-                    }
-                    break;
-            }
-        };
+        self.onmessage = (e) => this.handleMessage(e.data);
     }
 
+    handleMessage(msg) {
+        switch (msg.type) {
+            case 'init':
+                this.ciphertext = msg.ciphertext;
+                this.keyLength = msg.keyLength;
+                this.workerId = msg.workerId || 0;
+                this.totalWorkers = msg.totalWorkers || 1;
+                this.isPrimaryWorker = msg.isPrimaryWorker || false;
+                this.resetState();
+                break;
+            case 'start':
+                if (!this.running) {
+                    this.running = true;
+                    this.startTime = performance.now();
+                    this.run();
+                }
+                break;
+            case 'stop':
+                this.running = false;
+                break;
+        }
+    }
+
+    resetState() {
+        this.keysTested = 0;
+        this.bestScore = 0;
+        this.bestKey = this.generateKey(0);
+        this.primaryResults = [];
+        this.primarySearchDone = false;
+    }
+
+    async run() {
+        const totalKeys = Math.pow(26, this.keyLength);
+        const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
+        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
+
+        if (this.isPrimaryWorker) {
+            await this.findPrimaryTargets(startKey, endKey);
+            this.primarySearchDone = true;
+        }
+
+        while (this.running) {
+            switch (this.mode) {
+                case 'scan': await this.fullScan(startKey, endKey); break;
+                case 'optimize': await this.optimizeKey(); break;
+                case 'explore': await this.exploreRandom(); break;
+            }
+            this.checkProgress();
+        }
+    }
+
+    async findPrimaryTargets(startKey, endKey) {
+        const targetLen = this.primaryTarget.length;
+        const cipherLen = this.ciphertext.length;
+        const BLOCK_SIZE = 100000;
+
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
+            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
+            
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                const keyCodes = Array.from(key).map(c => this.charMap[c.charCodeAt(0)]);
+
+                for (let pos = 0; pos <= cipherLen - targetLen; pos++) {
+                    let match = true;
+                    for (let j = 0; j < targetLen; j++) {
+                        const cipherCode = this.charMap[this.ciphertext.charCodeAt(pos + j)];
+                        const keyCode = keyCodes[(pos + j) % this.keyLength];
+                        const plainPos = (cipherCode - keyCode + 26) % 26;
+                        
+                        if (plainPos !== this.targetCodes[j]) {
+                            match = false;
+                            break;
+                        }
+                    }
+
+                    if (match) {
+                        const plaintext = this.decrypt(key);
+                        this.primaryResults.push({key, plaintext});
+                        self.postMessage({
+                            type: 'primaryResult',
+                            key: key,
+                            plaintext: plaintext,
+                            score: 1000,
+                            workerId: this.workerId
+                        });
+                        break;
+                    }
+                }
+            }
+            this.keysTested += (blockEnd - keyNum);
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    // Ваши оригинальные методы (без изменений)
     generateKey(num) {
         const key = new Array(this.keyLength);
         for (let i = this.keyLength - 1; i >= 0; i--) {
@@ -106,21 +163,15 @@ class K4Worker {
         let plaintext = '';
         for (let i = 0; i < this.ciphertext.length; i++) {
             const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
-                            this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+                           this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
             plaintext += this.alphabet[plainPos];
         }
         return plaintext;
     }
 
     scoreText(text) {
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
-        const upperText = text.toUpperCase();
-        if (!this.primarySearchDone && upperText.includes(this.primaryTarget)) {
-            return 1000; // Фиксированный балл за BERLINCLOCK
-        }
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
-
         let score = 0;
+        const upperText = text.toUpperCase();
         const freq = new Uint16Array(26);
         let totalLetters = 0;
 
@@ -157,76 +208,6 @@ class K4Worker {
         return Math.round(score);
     }
 
-    async run() {
-        const totalKeys = Math.pow(26, this.keyLength);
-        const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
-        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
-
-        while (this.running) {
-            switch (this.mode) {
-                case 'scan':
-                    await this.fullScan(startKey, endKey);
-                    break;
-                case 'optimize':
-                    await this.optimizeKey();
-                    break;
-                case 'explore':
-                    await this.exploreRandom();
-                    break;
-                // +++ ДОБАВЛЕНО НАЧАЛО +++
-                case 'primarySearch':
-                    await this.findPrimaryTargets(startKey, endKey);
-                    this.primarySearchDone = true;
-                    this.mode = 'scan'; // Переключаемся на обычный режим
-                    break;
-                // +++ ДОБАВЛЕНО КОНЕЦ +++
-            }
-            this.checkProgress();
-        }
-    }
-
-    // +++ ДОБАВЛЕН НОВЫЙ МЕТОД +++
-    async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            
-            for (let i = keyNum; i < blockEnd; i++) {
-                const key = this.generateKey(i);
-                const plaintext = this.decrypt(key);
-                
-                if (plaintext.includes(this.primaryTarget)) {
-                    const score = 1000;
-                    this.primaryResults.push({key, plaintext, score});
-                    this.keysTested++;
-                    
-                    // Немедленная отправка результата
-                    self.postMessage({
-                        type: 'primaryResult',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score,
-                        workerId: this.workerId
-                    });
-                }
-            }
-            
-            // Периодическая проверка прогресса
-            if (performance.now() - this.lastReportTime > 1000) {
-                this.checkProgress();
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        }
-        
-        // Отправляем сообщение о завершении поиска
-        self.postMessage({
-            type: 'primarySearchComplete',
-            workerId: this.workerId,
-            foundCount: this.primaryResults.length
-        });
-    }
-
-    // ОРИГИНАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ:
     async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 10000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
@@ -325,7 +306,7 @@ class K4Worker {
                 keysTested: this.keysTested,
                 kps: kps,
                 mode: this.mode,
-                primarySearchDone: this.primarySearchDone
+                isPrimaryWorker: this.isPrimaryWorker
             });
             this.lastReportTime = now;
         }
