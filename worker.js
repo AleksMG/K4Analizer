@@ -28,7 +28,8 @@ const uncommonPatterns = [
 class K4Worker {
     constructor() {
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
-        this.charMap = new Uint8Array(256);
+        // Оптимизированная версия charMap - используем объект вместо Uint8Array
+        this.charMap = this.createCharMap();
         this.running = false;
         this.ciphertext = '';
         this.keyLength = 0;
@@ -43,16 +44,6 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
-        this.targetText = 'BERLINCLOCK'; // Новое поле для хранения целевого текста
-        this.targetTextFound = false;
-        this.parallelWorkers = [];
-        this.currentTask = null;
-
-        // Инициализация charMap
-        this.charMap.fill(255);
-        for (let i = 0; i < this.alphabet.length; i++) {
-            this.charMap[this.alphabet.charCodeAt(i)] = i;
-        }
 
         self.onmessage = (e) => {
             const msg = e.data;
@@ -65,9 +56,6 @@ class K4Worker {
                     this.keysTested = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
-                    if (msg.targetText) {
-                        this.targetText = msg.targetText.toUpperCase();
-                    }
                     break;
                 case 'start':
                     if (!this.running) {
@@ -87,12 +75,16 @@ class K4Worker {
                         this.lastImprovementTime = performance.now();
                     }
                     break;
-                case 'updateTargetText':
-                    this.targetText = msg.text.toUpperCase();
-                    this.targetTextFound = false;
-                    break;
             }
         };
+    }
+
+    createCharMap() {
+        const map = {};
+        for (let i = 0; i < this.alphabet.length; i++) {
+            map[this.alphabet[i]] = i;
+        }
+        return map;
     }
 
     generateKey(num) {
@@ -107,8 +99,9 @@ class K4Worker {
     decrypt(key) {
         let plaintext = '';
         for (let i = 0; i < this.ciphertext.length; i++) {
-            const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
-                            this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+            const cipherChar = this.ciphertext[i];
+            const keyChar = key[i % this.keyLength];
+            const plainPos = (this.charMap[cipherChar] - this.charMap[keyChar] + 26) % 26;
             plaintext += this.alphabet[plainPos];
         }
         return plaintext;
@@ -119,14 +112,6 @@ class K4Worker {
         const upperText = text.toUpperCase();
         const freq = new Uint16Array(26);
         let totalLetters = 0;
-
-        // Проверка на целевой текст (если задан)
-        if (this.targetText && !this.targetTextFound) {
-            if (upperText.includes(this.targetText)) {
-                this.targetTextFound = true;
-                score += 1000; // Очень высокий балл за нахождение целевого текста
-            }
-        }
 
         // Частотный анализ
         for (let i = 0; i < text.length; i++) {
@@ -169,19 +154,6 @@ class K4Worker {
         const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
 
-        // Создаем несколько параллельных задач
-        const parallelTasks = 12; // Оптимальное количество для большинства браузеров
-        for (let i = 0; i < parallelTasks; i++) {
-            this.parallelWorkers.push({
-                running: true,
-                task: this.createParallelTask(i, parallelTasks, startKey, endKey)
-            });
-        }
-
-        // Запускаем все задачи
-        await Promise.all(this.parallelWorkers.map(w => w.task));
-
-        // Основной цикл
         while (this.running) {
             switch (this.mode) {
                 case 'scan':
@@ -193,34 +165,19 @@ class K4Worker {
                 case 'explore':
                     await this.exploreRandom();
                     break;
-                case 'target':
-                    await this.searchTargetText();
-                    break;
             }
             this.checkProgress();
-            await new Promise(resolve => setTimeout(resolve, 0)); // Даем браузеру время на другие задачи
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
     }
 
-    createParallelTask(id, totalTasks, startKey, endKey) {
-        return async () => {
-            const taskRange = Math.floor((endKey - startKey) / totalTasks);
-            const taskStart = startKey + id * taskRange;
-            const taskEnd = id === totalTasks - 1 ? endKey : taskStart + taskRange;
-            
-            await this.fullScan(taskStart, taskEnd, true);
-        };
-    }
-
-    async fullScan(startKey, endKey, isParallel = false) {
+    async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 20000;
         let localBestScore = 0;
         let localBestKey = '';
 
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
-            if (!this.running || (isParallel && !this.parallelWorkers.find(w => w.task && w.running)?.running)) {
-                break;
-            }
+            if (!this.running) break;
 
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             for (let i = keyNum; i < blockEnd; i++) {
@@ -243,43 +200,27 @@ class K4Worker {
                             plaintext: plaintext,
                             score: this.bestScore
                         });
-
-                        // Если нашли целевой текст, переключаемся на оптимизацию
-                        if (this.targetTextFound) {
-                            this.mode = 'optimize';
-                            return;
-                        }
                     }
                 }
             }
 
-            // В параллельных задачах не меняем режим
-            if (!isParallel && performance.now() - this.lastImprovementTime > 5000) {
+            if (performance.now() - this.lastImprovementTime > 5000) {
                 this.mode = 'optimize';
                 break;
             }
 
-            // Даем возможность обработать другие события
-            if (keyNum % (BLOCK_SIZE * 50) === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        }
-
-        // Для параллельных задач сообщаем о завершении
-        if (isParallel) {
-            this.parallelWorkers.find(w => w.task).running = false;
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
     }
 
     async optimizeKey() {
         const keyChars = this.bestKey.split('');
         let improved = false;
-        const optimizationRounds = 5; // Несколько раундов оптимизации
+        const optimizationRounds = 5;
 
         for (let round = 0; round < optimizationRounds; round++) {
             if (!this.running) break;
 
-            // Перемешиваем позиции для оптимизации
             const positions = Array.from({length: this.keyLength}, (_, i) => i);
             this.shuffleArray(positions);
 
@@ -287,12 +228,11 @@ class K4Worker {
                 if (!this.running) break;
 
                 const originalChar = keyChars[pos];
-                // Проверяем соседние символы в случайном порядке
-                const deltas = [-1, 1, -2, 2, -3, 3, -4, 4]; // Добавлены дополнительные варианты
+                const deltas = [-1, 1, -2, 2, -3, 3, -4, 4];
                 this.shuffleArray(deltas);
 
                 for (const delta of deltas) {
-                    const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
+                    const newCharCode = (this.charMap[originalChar] + delta + 26) % 26;
                     const newChar = this.alphabet[newCharCode];
                     keyChars[pos] = newChar;
                     const newKey = keyChars.join('');
@@ -329,6 +269,8 @@ class K4Worker {
 
         if (improved) {
             this.stuckCount = 0;
+        } else {
+            this.mode = 'scan';
         }
     }
 
@@ -350,7 +292,6 @@ class K4Worker {
                 bestInBatchKey = randomKey;
             }
 
-            // Если нашли что-то интересное, сообщаем
             if (score > this.bestScore * 0.9) {
                 this.bestScore = score;
                 this.bestKey = randomKey;
@@ -366,63 +307,11 @@ class K4Worker {
             }
         }
 
-        // Если в этой партии ничего хорошего не нашли
         if (bestInBatchScore > this.bestScore * 0.8) {
             this.bestScore = bestInBatchScore;
             this.bestKey = bestInBatchKey;
             this.mode = 'optimize';
-        } else if (performance.now() - this.lastImprovementTime > 10000) {
-            this.mode = 'scan';
-        }
-    }
-
-    async searchTargetText() {
-        if (!this.targetText) {
-            this.mode = 'scan';
-            return;
-        }
-
-        const BLOCK_SIZE = 10000;
-        const totalKeys = Math.pow(26, this.keyLength);
-        const startKey = this.workerId * Math.floor(totalKeys / this.totalWorkers);
-        const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
-
-        for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
-            if (!this.running || this.targetTextFound) break;
-
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            for (let i = keyNum; i < blockEnd; i++) {
-                const key = this.generateKey(i);
-                const plaintext = this.decrypt(key);
-                const upperText = plaintext.toUpperCase();
-                this.keysTested++;
-
-                if (upperText.includes(this.targetText)) {
-                    const score = this.scoreText(plaintext);
-                    this.targetTextFound = true;
-                    this.bestScore = score;
-                    this.bestKey = key;
-                    this.lastImprovementTime = performance.now();
-                    self.postMessage({
-                        type: 'result',
-                        key: this.bestKey,
-                        plaintext: plaintext,
-                        score: this.bestScore,
-                        targetFound: true
-                    });
-                    this.mode = 'optimize';
-                    return;
-                }
-            }
-
-            // Периодически проверяем, не нашли ли целевой текст в другом воркере
-            if (keyNum % (BLOCK_SIZE * 10) === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        }
-
-        // Если дошли до конца и не нашли
-        if (!this.targetTextFound) {
+        } else {
             this.mode = 'scan';
         }
     }
@@ -442,8 +331,7 @@ class K4Worker {
                 type: 'progress',
                 keysTested: this.keysTested,
                 kps: kps,
-                mode: this.mode,
-                targetTextFound: this.targetTextFound
+                mode: this.mode
             });
             this.lastReportTime = now;
         }
