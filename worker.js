@@ -186,7 +186,7 @@ class K4Worker {
 
     // +++ ДОБАВЛЕН НОВЫЙ МЕТОД +++
     async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
             if (!this.running) break;
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
@@ -223,7 +223,7 @@ class K4Worker {
 
     // ОРИГИНАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ:
     async fullScan(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 20000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
             if (!this.running) break;
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
