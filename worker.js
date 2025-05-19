@@ -175,7 +175,7 @@ class K4Worker {
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
 
         // Создаем несколько параллельных задач
-        const parallelTasks = 4; // Оптимальное количество для большинства браузеров
+        const parallelTasks = 12; // Оптимальное количество для большинства браузеров
         for (let i = 0; i < parallelTasks; i++) {
             this.parallelWorkers.push({
                 running: true,
@@ -218,7 +218,7 @@ class K4Worker {
     }
 
     async fullScan(startKey, endKey, isParallel = false) {
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 20000;
         let localBestScore = 0;
         let localBestKey = '';
 
@@ -265,7 +265,7 @@ class K4Worker {
             }
 
             // Даем возможность обработать другие события
-            if (keyNum % (BLOCK_SIZE * 10) === 0) {
+            if (keyNum % (BLOCK_SIZE * 50) === 0) {
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
@@ -279,7 +279,7 @@ class K4Worker {
     async optimizeKey() {
         const keyChars = this.bestKey.split('');
         let improved = false;
-        const optimizationRounds = 3; // Несколько раундов оптимизации
+        const optimizationRounds = 5; // Несколько раундов оптимизации
 
         for (let round = 0; round < optimizationRounds; round++) {
             if (!this.running) break;
@@ -293,7 +293,7 @@ class K4Worker {
 
                 const originalChar = keyChars[pos];
                 // Проверяем соседние символы в случайном порядке
-                const deltas = [-1, 1, -2, 2, -3, 3];
+                const deltas = [-1, 1, -2, 2, -3, 3, -4, 4]; // Добавлены дополнительные варианты
                 this.shuffleArray(deltas);
 
                 for (const delta of deltas) {
@@ -338,7 +338,7 @@ class K4Worker {
     }
 
     async exploreRandom() {
-        const EXPLORE_BATCH_SIZE = 100;
+        const EXPLORE_BATCH_SIZE = 500;
         let bestInBatchScore = 0;
         let bestInBatchKey = '';
 
