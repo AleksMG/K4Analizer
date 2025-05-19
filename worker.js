@@ -166,7 +166,7 @@ class K4Worker {
         const keysPerWorker = Math.ceil(this.totalKeysToTest / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, this.totalKeysToTest);
-        const BLOCK_SIZE = 1000;
+        const BLOCK_SIZE = 10000;
 
         while (this.running && !this.completed) {
             switch (this.mode) {
