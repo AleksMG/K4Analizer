@@ -48,7 +48,7 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
-        this.targetText = 'BERLINCLOCK'; // Новое поле для хранения целевого текста
+        this.targetText = ''; // Новое поле для хранения целевого текста
         this.targetTextFound = false;
         this.parallelWorkers = [];
         this.currentTask = null;
