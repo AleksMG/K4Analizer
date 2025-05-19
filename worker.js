@@ -204,7 +204,7 @@ class K4Worker {
     }
 
     async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
@@ -248,7 +248,7 @@ class K4Worker {
     }
 
     async fullScan(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
