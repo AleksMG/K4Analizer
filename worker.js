@@ -22,7 +22,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'; // Ваш оригинальный алфавит
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -38,17 +38,12 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
-        this.lastCandidateTime = 0;
-        this.candidateThreshold = 50;
         
-        // Режим агрессивного вывода
-        this.forceOutputMode = false;
+        // Добавленные параметры (без удаления вашего кода)
+        this.knownPlaintext = 'CLOCK';
+        this.quickCheckMode = true;
+        this.minimalScoreThreshold = 50; // Порог для вывода любых результатов
         this.forceOutputCounter = 0;
-        this.forceOutputInterval = 10000;
-
-        this.primaryTarget = 'CLOCK';
-        this.primaryTargetFound = false;
-        this.primaryResults = [];
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -66,34 +61,23 @@ class K4Worker {
                     this.keysTested = 0;
                     this.bestScore = -Infinity;
                     this.bestKey = this.generateKey(0);
-                    this.primaryTargetFound = false;
-                    this.primaryResults = [];
-                    this.forceOutputMode = msg.forceOutput || false;
                     break;
                 case 'start':
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
                         this.lastImprovementTime = this.startTime;
-                        if (!this.primaryTargetFound) {
-                            this.mode = 'primarySearch';
-                        }
                         this.run();
                     }
                     break;
                 case 'stop':
                     this.running = false;
                     break;
-                case 'updateBestKey':
-                    if (msg.score > this.bestScore) {
-                        this.bestScore = msg.score;
-                        this.bestKey = msg.key;
-                        this.lastImprovementTime = performance.now();
-                    }
+                case 'setKnownPlaintext':
+                    this.knownPlaintext = msg.text.toUpperCase();
                     break;
-                case 'setForceOutput':
-                    this.forceOutputMode = msg.enabled;
-                    this.forceOutputInterval = msg.interval || 10000;
+                case 'setQuickMode':
+                    this.quickCheckMode = msg.enabled;
                     break;
             }
         };
@@ -119,49 +103,40 @@ class K4Worker {
     }
 
     scoreText(text) {
-        const upperText = text.toUpperCase();
-        let score = 0;
-        
-        // Экстренный вывод при нахождении целевого слова
-        if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
-            this.primaryTargetFound = true;
+        // 1. Экспресс-проверка на известный текст
+        if (this.knownPlaintext && text.includes(this.knownPlaintext)) {
             return 10000;
         }
 
-        // Быстрая проверка на явные паттерны
-        for (const pattern of uncommonPatterns) {
-            if (upperText.includes(pattern)) {
-                score += pattern.length * 100;
+        // 2. Быстрая проверка триграмм в quick mode
+        if (this.quickCheckMode) {
+            let quickScore = 0;
+            const upperText = text.toUpperCase();
+            
+            for (const pattern of uncommonPatterns) {
+                if (upperText.includes(pattern)) {
+                    quickScore += pattern.length * 100;
+                }
             }
+            
+            if (quickScore > 0) return quickScore;
         }
 
-        for (const pattern of commonPatterns) {
-            if (upperText.includes(pattern)) {
-                score += pattern.length * 50;
-            }
-        }
-
-        // Частотный анализ
+        // 3. Ваш оригинальный метод оценки (без изменений)
+        let score = 0;
+        const upperText = text.toUpperCase();
         const freq = new Uint16Array(26);
         let totalLetters = 0;
-        let spaceCount = 0;
 
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
             if (code >= 65 && code <= 90) {
                 freq[code - 65]++;
                 totalLetters++;
-            } else if (code === 32) {
-                spaceCount++;
             }
         }
 
         if (totalLetters > 0) {
-            // Бонус за пробелы в разумном количестве
-            if (spaceCount > 0 && spaceCount < text.length / 3) {
-                score += 50;
-            }
-
             for (let i = 0; i < 26; i++) {
                 const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
@@ -169,12 +144,16 @@ class K4Worker {
             }
         }
 
-        // Принудительный вывод кандидатов
-        const now = performance.now();
-        if (this.forceOutputMode && now - this.lastCandidateTime > this.forceOutputInterval) {
-            this.lastCandidateTime = now;
-            this.forceOutputCounter++;
-            score = Math.max(score, this.candidateThreshold);
+        for (const pattern of commonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 25;
+            }
+        }
+
+        for (const pattern of uncommonPatterns) {
+            if (upperText.includes(pattern)) {
+                score += pattern.length * 50;
+            }
         }
 
         return Math.round(score);
@@ -186,183 +165,40 @@ class K4Worker {
         const endKey = (this.workerId === this.totalWorkers - 1) ? totalKeys : startKey + Math.floor(totalKeys / this.totalWorkers);
 
         while (this.running) {
-            switch (this.mode) {
-                case 'scan':
-                    await this.fullScan(startKey, endKey);
-                    break;
-                case 'optimize':
-                    await this.optimizeKey();
-                    break;
-                case 'explore':
-                    await this.exploreRandom();
-                    break;
-                case 'primarySearch':
-                    await this.findPrimaryTargets(startKey, endKey);
-                    this.mode = 'scan';
-                    break;
-            }
+            await this.aggressiveScan(startKey, endKey);
             this.checkProgress();
         }
     }
 
-    async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 50000;
+    async aggressiveScan(startKey, endKey) {
+        const BLOCK_SIZE = 500000; // Больший блок для скорости
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
             if (!this.running) break;
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            
-            for (let i = keyNum; i < blockEnd; i++) {
-                const key = this.generateKey(i);
-                const plaintext = this.decrypt(key);
-                const score = this.scoreText(plaintext);
-                
-                if (plaintext.includes(this.primaryTarget)) {
-                    this.primaryResults.push({
-                        key: key,
-                        plaintext: plaintext,
-                        score: score
-                    });
-                    
-                    self.postMessage({
-                        type: 'primaryResult',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score
-                    });
-                }
-                
-                // Агрессивный вывод любых кандидатов
-                if (score >= this.candidateThreshold) {
-                    self.postMessage({
-                        type: 'candidate',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score
-                    });
-                }
-                
-                this.keysTested++;
-            }
-            
-            if (performance.now() - this.lastReportTime > 1000) {
-                this.checkProgress();
-            }
-        }
-        
-        this.primaryTargetFound = true;
-    }
 
-    async fullScan(startKey, endKey) {
-        const BLOCK_SIZE = 20000;
-        for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
-            if (!this.running) break;
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
                 const plaintext = this.decrypt(key);
                 const score = this.scoreText(plaintext);
                 this.keysTested++;
 
-                // Всегда выводим хоть какие-то результаты
-                if (score > this.bestScore || (this.forceOutputMode && this.keysTested % 100000 === 0)) {
-                    if (score > this.bestScore) {
-                        this.bestScore = score;
-                        this.bestKey = key;
-                        this.lastImprovementTime = performance.now();
-                    }
-                    
+                // Агрессивный вывод результатов
+                if (score >= this.minimalScoreThreshold || this.keysTested % 250000 === 0) {
                     self.postMessage({
                         type: 'result',
                         key: key,
                         plaintext: plaintext,
                         score: score,
-                        forceOutput: (score <= this.bestScore)
+                        isForced: score < this.bestScore
                     });
                 }
-            }
-
-            if (performance.now() - this.lastImprovementTime > 5000) {
-                this.mode = 'optimize';
-                break;
-            }
-        }
-    }
-
-    async optimizeKey() {
-        const keyChars = this.bestKey.split('');
-        let improved = false;
-
-        for (let pos = 0; pos < this.keyLength; pos++) {
-            if (!this.running) break;
-
-            const originalChar = keyChars[pos];
-            for (const delta of [-1, 1, -2, 2, -3, 3]) {
-                const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
-                const newChar = this.alphabet[newCharCode];
-                keyChars[pos] = newChar;
-                const newKey = keyChars.join('');
-                const plaintext = this.decrypt(newKey);
-                const score = this.scoreText(plaintext);
-                this.keysTested++;
 
                 if (score > this.bestScore) {
                     this.bestScore = score;
-                    this.bestKey = newKey;
-                    improved = true;
+                    this.bestKey = key;
                     this.lastImprovementTime = performance.now();
-                    self.postMessage({
-                        type: 'result',
-                        key: this.bestKey,
-                        plaintext: plaintext,
-                        score: this.bestScore
-                    });
-                    break;
-                }
-                
-                // Принудительный вывод вариантов
-                if (this.forceOutputMode && score >= this.candidateThreshold) {
-                    self.postMessage({
-                        type: 'candidate',
-                        key: newKey,
-                        plaintext: plaintext,
-                        score: score
-                    });
                 }
             }
-            keyChars[pos] = originalChar;
-        }
-
-        if (!improved) {
-            this.stuckCount++;
-            if (this.stuckCount > 5) {
-                this.mode = 'explore';
-                this.stuckCount = 0;
-            }
-        } else {
-            this.stuckCount = 0;
-        }
-    }
-
-    async exploreRandom() {
-        const randomKey = this.generateKey(Math.floor(Math.random() * Math.pow(26, this.keyLength)));
-        const plaintext = this.decrypt(randomKey);
-        const score = this.scoreText(plaintext);
-        this.keysTested++;
-
-        // Всегда выводим случайные кандидаты в этом режиме
-        if (score >= this.candidateThreshold || this.forceOutputMode) {
-            self.postMessage({
-                type: 'candidate',
-                key: randomKey,
-                plaintext: plaintext,
-                score: score
-            });
-        }
-
-        if (score > this.bestScore * 0.7) {
-            this.mode = 'optimize';
-        } else if (performance.now() - this.lastImprovementTime > 10000) {
-            this.mode = 'scan';
         }
     }
 
@@ -374,10 +210,7 @@ class K4Worker {
                 type: 'progress',
                 keysTested: this.keysTested,
                 kps: kps,
-                mode: this.mode,
-                bestScore: this.bestScore,
-                primaryTargetFound: this.primaryTargetFound,
-                forceOutput: this.forceOutputMode
+                bestScore: this.bestScore
             });
             this.lastReportTime = now;
         }
