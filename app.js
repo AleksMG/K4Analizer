@@ -35,7 +35,7 @@ this.uncommonPatterns = [
     'DESPARATELY', 'WEAKLY', 'IDBY', 'JIMSANBORN', 'SANBORN', 'SCRATCHES', 'SHADOWS',
     'LAYER', 'LAYERED', 'QUESTION', 'ANSWER', 'SOLUTION', 'MYSTER', 'HIDDEN', 'COVER',
     'UNCOVER', 'REVEAL', 'TRUTH', 'LIE', 'DECEPTION', 'OMISSION', 'REDACTED', 'CLASSIFIED',
-    'TOP SECRET', 'CONFIDENTIAL', 'RESTRICTED', 'EYES ONLY', 'FOR YOUR EYES ONLY'
+    'TOPSECRET', 'CONFIDENTIAL', 'RESTRICTED', 'EYESONLY', 'FORYOUREYESONLY'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
