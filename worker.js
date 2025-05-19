@@ -43,12 +43,11 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
+        this.testedKeys = new Set(); // Добавлено для отслеживания проверенных ключей
         
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
         this.primaryTarget = 'BERLINCLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -66,21 +65,18 @@ class K4Worker {
                     this.keysTested = 0;
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
-                    // +++ ДОБАВЛЕНО НАЧАЛО +++
+                    this.testedKeys.clear(); // Очищаем при инициализации
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
-                    // +++ ДОБАВЛЕНО КОНЕЦ +++
                     break;
                 case 'start':
                     if (!this.running) {
                         this.running = true;
                         this.startTime = performance.now();
                         this.lastImprovementTime = this.startTime;
-                        // +++ ИЗМЕНЕНО НАЧАЛО +++
                         if (!this.primaryTargetFound) {
                             this.mode = 'primarySearch';
                         }
-                        // +++ ИЗМЕНЕНО КОНЕЦ +++
                         this.run();
                     }
                     break;
@@ -118,12 +114,10 @@ class K4Worker {
     }
 
     scoreText(text) {
-        // +++ ДОБАВЛЕНО НАЧАЛО +++
         const upperText = text.toUpperCase();
         if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
-            return 1000; // Фиксированный балл за BERLINCLOCK
+            return 1000;
         }
-        // +++ ДОБАВЛЕНО КОНЕЦ +++
 
         let score = 0;
         const freq = new Uint16Array(26);
@@ -178,18 +172,15 @@ class K4Worker {
                 case 'explore':
                     await this.exploreRandom();
                     break;
-                // +++ ДОБАВЛЕНО НАЧАЛО +++
                 case 'primarySearch':
                     await this.findPrimaryTargets(startKey, endKey);
-                    this.mode = 'scan'; // После поиска переключаемся на обычный режим
+                    this.mode = 'scan';
                     break;
-                // +++ ДОБАВЛЕНО КОНЕЦ +++
             }
             this.checkProgress();
         }
     }
 
-    // +++ ДОБАВЛЕН НОВЫЙ МЕТОД +++
     async findPrimaryTargets(startKey, endKey) {
         const BLOCK_SIZE = 10000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
@@ -198,6 +189,9 @@ class K4Worker {
             
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
+                if (this.testedKeys.has(key)) continue; // Пропускаем уже проверенные ключи
+                this.testedKeys.add(key);
+                
                 const plaintext = this.decrypt(key);
                 
                 if (plaintext.includes(this.primaryTarget)) {
@@ -226,7 +220,6 @@ class K4Worker {
         this.primaryTargetFound = true;
     }
 
-    // ОРИГИНАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ:
     async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 10000;
         for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
@@ -234,6 +227,9 @@ class K4Worker {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
+                if (this.testedKeys.has(key)) continue; // Пропускаем уже проверенные ключи
+                this.testedKeys.add(key);
+                
                 const plaintext = this.decrypt(key);
                 const score = this.scoreText(plaintext);
                 this.keysTested++;
@@ -271,6 +267,10 @@ class K4Worker {
                 const newChar = this.alphabet[newCharCode];
                 keyChars[pos] = newChar;
                 const newKey = keyChars.join('');
+                
+                if (this.testedKeys.has(newKey)) continue; // Пропускаем уже проверенные ключи
+                this.testedKeys.add(newKey);
+                
                 const plaintext = this.decrypt(newKey);
                 const score = this.scoreText(plaintext);
                 this.keysTested++;
@@ -304,9 +304,23 @@ class K4Worker {
     }
 
     async exploreRandom() {
-        const randomKey = this.generateKey(Math.floor(Math.random() * Math.pow(26, this.keyLength)));
-        const plaintext = this.decrypt(randomKey);
-        const score = this.scoreText(plaintext);
+        let attempts = 0;
+        const maxAttempts = 100;
+        let key, plaintext, score;
+        
+        do {
+            key = this.generateKey(Math.floor(Math.random() * Math.pow(26, this.keyLength)));
+            attempts++;
+        } while (this.testedKeys.has(key) && attempts < maxAttempts);
+        
+        if (attempts >= maxAttempts) {
+            this.mode = 'scan';
+            return;
+        }
+        
+        this.testedKeys.add(key);
+        plaintext = this.decrypt(key);
+        score = this.scoreText(plaintext);
         this.keysTested++;
 
         if (score > this.bestScore * 0.8) {
