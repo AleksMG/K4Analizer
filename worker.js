@@ -7,6 +7,7 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
+// Ваши оригинальные паттерны (без изменений)
 const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -27,7 +28,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'; // Ваш оригинальный алфавит
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -49,7 +50,7 @@ class K4Worker {
         this.primaryTargetFound = false;
         this.primaryResults = [];
         this.localOptimizeAttempts = 0;
-        this.testedKeysCache = new Set();
+        this.testedKeysCache = new Set(); // Кеш для избежания повторов
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -72,7 +73,6 @@ class K4Worker {
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
                     this.testedKeysCache.clear();
-                    this.localOptimizeAttempts = 0;
                     break;
                 case 'start':
                     if (!this.running && !this.completed) {
@@ -275,16 +275,16 @@ class K4Worker {
     async optimizeKey() {
         const keyChars = this.bestKey.split('');
         let improved = false;
-        const radius = 1 + Math.floor(this.localOptimizeAttempts / 5);
-        const deltas = [-3, -2, -1, 1, 2, 3].slice(0, radius + 2);
-        const positions = Array.from({length: this.keyLength}, (_, i) => i)
-            .sort(() => Math.random() - 0.5);
+        const radius = this.stuckCount > 5 ? 3 : 1;
+        const positions = [...Array(this.keyLength).keys()].sort(() => Math.random() - 0.5);
 
         for (const pos of positions) {
             if (!this.running) break;
 
             const originalChar = keyChars[pos];
-            for (const delta of deltas.sort(() => Math.random() - 0.5)) {
+            for (let delta = -radius; delta <= radius; delta++) {
+                if (delta === 0) continue;
+                
                 const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
                 keyChars[pos] = this.alphabet[newCharCode];
                 const newKey = keyChars.join('');
@@ -301,8 +301,8 @@ class K4Worker {
                     this.bestKey = newKey;
                     this.bestPlaintext = plaintext;
                     improved = true;
-                    this.lastImprovementTime = performance.now();
-                    self.postMessage({ type: 'result', key: this.bestKey, plaintext: this.bestPlaintext, score });
+                    this.stuckCount = 0;
+                    self.postMessage({ type: 'result', key: newKey, plaintext, score });
                     break;
                 }
             }
@@ -313,10 +313,12 @@ class K4Worker {
             }
         }
 
-        this.localOptimizeAttempts = improved ? 0 : this.localOptimizeAttempts + 1;
-        if (!improved && this.localOptimizeAttempts > 10) {
-            this.mode = 'explore';
-            this.localOptimizeAttempts = 0;
+        if (!improved) {
+            this.stuckCount++;
+            if (this.stuckCount > 10) {
+                this.mode = 'explore';
+                this.stuckCount = 0;
+            }
         }
     }
 
@@ -329,7 +331,7 @@ class K4Worker {
         while (attempts < MAX_ATTEMPTS && this.running) {
             let key;
             
-            if (Math.random() < 0.7 && this.bestKey) {
+            if (Math.random() < 0.8 && this.bestKey) {
                 const mutatePos = Math.floor(Math.random() * this.keyLength);
                 const delta = Math.random() < 0.5 ? 1 : -1;
                 const newCharCode = (this.charMap[this.bestKey.charCodeAt(mutatePos)] + delta + 26) % 26;
@@ -362,6 +364,7 @@ class K4Worker {
             this.bestScore = bestLocalScore;
             this.bestKey = bestLocalKey;
             this.mode = 'optimize';
+            self.postMessage({ type: 'result', key: bestLocalKey, score: bestLocalScore });
         } else {
             this.mode = 'scan';
         }
