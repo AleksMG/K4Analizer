@@ -38,10 +38,10 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.optimizePositions = [];
-        
+
         // +++ ДОБАВЛЕНО НАЧАЛО +++
-        this.primaryTarget = 'CLOCK';
-        this.primaryTargetFound = false;
+        this.primaryTarget = 'BERLINCLOCK';
+        this.primarySearchDone = false;
         this.primaryResults = [];
         // +++ ДОБАВЛЕНО КОНЕЦ +++
 
@@ -62,7 +62,7 @@ class K4Worker {
                     this.bestScore = 0;
                     this.bestKey = this.generateKey(0);
                     // +++ ДОБАВЛЕНО НАЧАЛО +++
-                    this.primaryTargetFound = false;
+                    this.primarySearchDone = false;
                     this.primaryResults = [];
                     // +++ ДОБАВЛЕНО КОНЕЦ +++
                     break;
@@ -72,7 +72,7 @@ class K4Worker {
                         this.startTime = performance.now();
                         this.lastImprovementTime = this.startTime;
                         // +++ ИЗМЕНЕНО НАЧАЛО +++
-                        if (!this.primaryTargetFound) {
+                        if (!this.primarySearchDone) {
                             this.mode = 'primarySearch';
                         }
                         // +++ ИЗМЕНЕНО КОНЕЦ +++
@@ -115,7 +115,7 @@ class K4Worker {
     scoreText(text) {
         // +++ ДОБАВЛЕНО НАЧАЛО +++
         const upperText = text.toUpperCase();
-        if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
+        if (!this.primarySearchDone && upperText.includes(this.primaryTarget)) {
             return 1000; // Фиксированный балл за BERLINCLOCK
         }
         // +++ ДОБАВЛЕНО КОНЕЦ +++
@@ -176,7 +176,8 @@ class K4Worker {
                 // +++ ДОБАВЛЕНО НАЧАЛО +++
                 case 'primarySearch':
                     await this.findPrimaryTargets(startKey, endKey);
-                    this.mode = 'scan'; // После поиска переключаемся на обычный режим
+                    this.primarySearchDone = true;
+                    this.mode = 'scan'; // Переключаемся на обычный режим
                     break;
                 // +++ ДОБАВЛЕНО КОНЕЦ +++
             }
@@ -187,8 +188,7 @@ class K4Worker {
     // +++ ДОБАВЛЕН НОВЫЙ МЕТОД +++
     async findPrimaryTargets(startKey, endKey) {
         const BLOCK_SIZE = 10000;
-        for (let keyNum = startKey; keyNum < endKey; keyNum += BLOCK_SIZE) {
-            if (!this.running) break;
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
             for (let i = keyNum; i < blockEnd; i++) {
@@ -196,29 +196,34 @@ class K4Worker {
                 const plaintext = this.decrypt(key);
                 
                 if (plaintext.includes(this.primaryTarget)) {
-                    this.primaryResults.push({
-                        key: key,
-                        plaintext: plaintext,
-                        score: this.scoreText(plaintext)
-                    });
+                    const score = 1000;
+                    this.primaryResults.push({key, plaintext, score});
+                    this.keysTested++;
                     
+                    // Немедленная отправка результата
                     self.postMessage({
                         type: 'primaryResult',
                         key: key,
                         plaintext: plaintext,
-                        score: this.scoreText(plaintext)
+                        score: score,
+                        workerId: this.workerId
                     });
                 }
-                
-                this.keysTested++;
             }
             
+            // Периодическая проверка прогресса
             if (performance.now() - this.lastReportTime > 1000) {
                 this.checkProgress();
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
         
-        this.primaryTargetFound = true;
+        // Отправляем сообщение о завершении поиска
+        self.postMessage({
+            type: 'primarySearchComplete',
+            workerId: this.workerId,
+            foundCount: this.primaryResults.length
+        });
     }
 
     // ОРИГИНАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ:
@@ -319,7 +324,8 @@ class K4Worker {
                 type: 'progress',
                 keysTested: this.keysTested,
                 kps: kps,
-                mode: this.mode
+                mode: this.mode,
+                primarySearchDone: this.primarySearchDone
             });
             this.lastReportTime = now;
         }
