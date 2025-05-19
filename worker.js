@@ -48,6 +48,8 @@ class K4Worker {
         this.primaryTarget = 'BERLINCLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
+        this.localOptimizeAttempts = 0;
+        this.testedKeysCache = new Set();
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
@@ -69,6 +71,8 @@ class K4Worker {
                     this.completed = false;
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
+                    this.testedKeysCache.clear();
+                    this.localOptimizeAttempts = 0;
                     break;
                 case 'start':
                     if (!this.running && !this.completed) {
@@ -162,7 +166,7 @@ class K4Worker {
         const keysPerWorker = Math.ceil(this.totalKeysToTest / this.totalWorkers);
         const startKey = this.workerId * keysPerWorker;
         const endKey = Math.min(startKey + keysPerWorker, this.totalKeysToTest);
-        const BLOCK_SIZE = 10000;
+        const BLOCK_SIZE = 1000;
 
         while (this.running && !this.completed) {
             switch (this.mode) {
@@ -261,7 +265,7 @@ class K4Worker {
                 }
             }
 
-            if (performance.now() - this.lastImprovementTime > 10000) {
+            if (performance.now() - this.lastImprovementTime > 5000) {
                 this.mode = 'optimize';
                 break;
             }
@@ -271,15 +275,23 @@ class K4Worker {
     async optimizeKey() {
         const keyChars = this.bestKey.split('');
         let improved = false;
+        const radius = 1 + Math.floor(this.localOptimizeAttempts / 5);
+        const deltas = [-3, -2, -1, 1, 2, 3].slice(0, radius + 2);
+        const positions = Array.from({length: this.keyLength}, (_, i) => i)
+            .sort(() => Math.random() - 0.5);
 
-        for (let pos = 0; pos < this.keyLength && this.running; pos++) {
+        for (const pos of positions) {
+            if (!this.running) break;
+
             const originalChar = keyChars[pos];
-            for (const delta of [-1, 1, -2, 2, -3, 3]) {
+            for (const delta of deltas.sort(() => Math.random() - 0.5)) {
                 const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
-                const newChar = this.alphabet[newCharCode];
-                keyChars[pos] = newChar;
+                keyChars[pos] = this.alphabet[newCharCode];
                 const newKey = keyChars.join('');
-                
+
+                if (this.testedKeysCache.has(newKey)) continue;
+                this.testedKeysCache.add(newKey);
+
                 const plaintext = this.decrypt(newKey);
                 const score = this.scoreText(plaintext);
                 this.keysTested++;
@@ -290,51 +302,67 @@ class K4Worker {
                     this.bestPlaintext = plaintext;
                     improved = true;
                     this.lastImprovementTime = performance.now();
-                    self.postMessage({
-                        type: 'result',
-                        key: this.bestKey,
-                        plaintext: this.bestPlaintext,
-                        score: this.bestScore
-                    });
+                    self.postMessage({ type: 'result', key: this.bestKey, plaintext: this.bestPlaintext, score });
                     break;
                 }
             }
             keyChars[pos] = originalChar;
+
+            if (performance.now() - this.lastReportTime > 50) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
-        if (!improved) {
-            this.stuckCount++;
-            if (this.stuckCount > 5) {
-                this.mode = 'explore';
-                this.stuckCount = 0;
-            }
-        } else {
-            this.stuckCount = 0;
+        this.localOptimizeAttempts = improved ? 0 : this.localOptimizeAttempts + 1;
+        if (!improved && this.localOptimizeAttempts > 10) {
+            this.mode = 'explore';
+            this.localOptimizeAttempts = 0;
         }
     }
 
     async exploreRandom() {
+        const MAX_ATTEMPTS = 500;
         let attempts = 0;
-        const maxAttempts = 100;
-        let key;
-        
-        do {
-            key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
-            attempts++;
-        } while (attempts < maxAttempts && this.running);
-        
-        if (attempts >= maxAttempts || !this.running) {
-            this.mode = 'scan';
-            return;
-        }
-        
-        const plaintext = this.decrypt(key);
-        const score = this.scoreText(plaintext);
-        this.keysTested++;
+        let bestLocalKey = '';
+        let bestLocalScore = -Infinity;
 
-        if (score > this.bestScore * 0.8) {
+        while (attempts < MAX_ATTEMPTS && this.running) {
+            let key;
+            
+            if (Math.random() < 0.7 && this.bestKey) {
+                const mutatePos = Math.floor(Math.random() * this.keyLength);
+                const delta = Math.random() < 0.5 ? 1 : -1;
+                const newCharCode = (this.charMap[this.bestKey.charCodeAt(mutatePos)] + delta + 26) % 26;
+                key = this.bestKey.substring(0, mutatePos) + 
+                      this.alphabet[newCharCode] + 
+                      this.bestKey.substring(mutatePos + 1);
+            } else {
+                key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
+            }
+
+            if (this.testedKeysCache.has(key)) continue;
+            this.testedKeysCache.add(key);
+
+            const plaintext = this.decrypt(key);
+            const score = this.scoreText(plaintext);
+            this.keysTested++;
+            attempts++;
+
+            if (score > bestLocalScore) {
+                bestLocalScore = score;
+                bestLocalKey = key;
+            }
+
+            if (attempts % 20 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        if (bestLocalScore > this.bestScore * 0.85) {
+            this.bestScore = bestLocalScore;
+            this.bestKey = bestLocalKey;
             this.mode = 'optimize';
-        } else if (performance.now() - this.lastImprovementTime > 10000) {
+        } else {
             this.mode = 'scan';
         }
     }
