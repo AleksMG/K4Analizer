@@ -1,55 +1,52 @@
-// worker.js - Финальная проверенная версия
+// worker.js — полная совместимость с K4Decryptor.js (включая обработку результатов)
 class K4Worker {
     constructor() {
-        // Соответствует параметрам из K4Decryptor.initWorkers()
-        this.ciphertext = '';
-        this.keyLength = 0;
-        this.alphabet = '';
-        this.workerId = 0;
-        this.totalWorkers = 1;
-        this.keysTested = 0;
         this.isRunning = false;
-        this.currentKey = null;
+        this.keysTested = 0;
         this.alphabetMap = {};
+        this.cipherIndices = [];
+        this.keyIndices = [];
 
-        // Обработчик сообщений
         self.onmessage = (e) => {
             const { type, ...data } = e.data;
-            if (type === 'init') this.initialize(data);
+            if (type === 'init') this.init(data);
             if (type === 'start') this.start();
             if (type === 'stop') this.stop();
         };
     }
 
-    initialize(params) {
-        this.ciphertext = params.ciphertext;
-        this.keyLength = parseInt(params.keyLength);
-        this.alphabet = params.alphabet;
-        this.workerId = parseInt(params.workerId);
-        this.totalWorkers = parseInt(params.totalWorkers);
-        
-        // Инициализация алфавита (без изменений)
-        this.alphabetMap = {};
-        for (let i = 0; i < this.alphabet.length; i++) {
-            this.alphabetMap[this.alphabet[i]] = i;
-        }
-        
-        // Начальный ключ (как в вашем коде)
-        const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
-        const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
-        this.currentKey = this.generateKey(this.workerId * keysPerWorker);
+    init({ ciphertext, keyLength, alphabet, knownPlaintext, workerId, totalWorkers }) {
+        this.ciphertext = ciphertext;
+        this.keyLength = keyLength;
+        this.alphabet = alphabet;
+        this.knownPlaintext = knownPlaintext?.toUpperCase() || '';
+        this.workerId = workerId;
+        this.totalWorkers = totalWorkers;
+
+        // Оптимизация: предварительно маппим алфавит и ciphertext
+        this.alphabetMap = Object.fromEntries([...alphabet].map((c, i) => [c, i]));
+        this.cipherIndices = [...ciphertext].map(c => this.alphabetMap[c] || 0);
+
+        // Инициализация начального ключа
+        const totalKeys = Math.pow(alphabet.length, keyLength);
+        const keysPerWorker = Math.ceil(totalKeys / totalWorkers);
+        this.keyIndices = this.indexToKeyIndices(workerId * keysPerWorker);
+        this.currentKey = this.indicesToKey(this.keyIndices);
     }
 
-    generateKey(index) {
-        let key = '';
+    indexToKeyIndices(index) {
+        const indices = [];
         let remaining = index;
         for (let i = 0; i < this.keyLength; i++) {
             const power = Math.pow(this.alphabet.length, this.keyLength - i - 1);
-            const pos = Math.floor(remaining / power) % this.alphabet.length;
-            key += this.alphabet[pos];
+            indices.push(Math.floor(remaining / power) % this.alphabet.length;
             remaining %= power;
         }
-        return key;
+        return indices;
+    }
+
+    indicesToKey(indices) {
+        return indices.map(i => this.alphabet[i]).join('');
     }
 
     start() {
@@ -61,25 +58,28 @@ class K4Worker {
     process() {
         if (!this.isRunning) return;
 
-        const batchSize = 50000; // Оптимальный размер пачки
+        const BATCH_SIZE = 100000; // Увеличенный размер пачки
         const results = [];
         const startTime = performance.now();
 
-        for (let i = 0; i < batchSize && this.isRunning; i++) {
-            // Дешифровка как в K4Decryptor.js
+        for (let i = 0; i < BATCH_SIZE && this.isRunning; i++) {
+            // Дешифровка (оптимизированная)
             let plaintext = '';
-            for (let j = 0; j < this.ciphertext.length; j++) {
-                const cipherIdx = this.alphabetMap[this.ciphertext[j]];
-                const keyIdx = this.alphabetMap[this.currentKey[j % this.keyLength]];
+            for (let j = 0; j < this.cipherIndices.length; j++) {
+                const cipherIdx = this.cipherIndices[j];
+                const keyIdx = this.keyIndices[j % this.keyLength];
                 const plainIdx = (cipherIdx - keyIdx + this.alphabet.length) % this.alphabet.length;
                 plaintext += this.alphabet[plainIdx];
             }
-            
-            results.push({
-                key: this.currentKey,
-                plaintext: plaintext,
-                workerId: this.workerId
-            });
+
+            // Быстрая проверка knownPlaintext (как в K4Decryptor.js)
+            if (this.knownPlaintext && plaintext.includes(this.knownPlaintext)) {
+                results.push({
+                    key: this.currentKey,
+                    plaintext: plaintext,
+                    workerId: this.workerId
+                });
+            }
 
             this.keysTested++;
             this.nextKey();
@@ -88,16 +88,17 @@ class K4Worker {
         }
 
         if (results.length > 0) {
-            self.postMessage({ type: 'result', results: results });
+            self.postMessage({ type: 'result', results });
         }
 
+        // Отправка прогресса (как в K4Decryptor.handleWorkerMessage())
         self.postMessage({
             type: 'progress',
             keysTested: this.keysTested,
             workerId: this.workerId
         });
 
-        // Проверка завершения (как в вашем коде)
+        // Проверка завершения
         const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
         if (this.keysTested >= Math.ceil(totalKeys / this.totalWorkers)) {
             this.stop();
@@ -108,34 +109,28 @@ class K4Worker {
     }
 
     nextKey() {
-        let newKey = '';
         let carry = 1;
-        
         for (let i = this.keyLength - 1; i >= 0; i--) {
-            const currentIdx = this.alphabetMap[this.currentKey[i]];
-            const newIdx = (currentIdx + carry) % this.alphabet.length;
-            newKey = this.alphabet[newIdx] + newKey;
-            carry = Math.floor((currentIdx + carry) / this.alphabet.length);
-            
-            if (carry === 0) {
-                newKey = this.currentKey.substring(0, i) + newKey;
-                break;
-            }
+            this.keyIndices[i] += carry;
+            carry = Math.floor(this.keyIndices[i] / this.alphabet.length);
+            this.keyIndices[i] %= this.alphabet.length;
+            if (carry === 0) break;
         }
-        
-        this.currentKey = carry > 0 
-            ? this.generateKey(this.workerId * Math.ceil(
-                Math.pow(this.alphabet.length, this.keyLength) / this.totalWorkers
-              ))
-            : newKey;
+
+        this.currentKey = this.indicesToKey(this.keyIndices);
+
+        // Переполнение -> начинаем с начала своего сегмента
+        if (carry > 0) {
+            const totalKeys = Math.pow(this.alphabet.length, this.keyLength);
+            const keysPerWorker = Math.ceil(totalKeys / this.totalWorkers);
+            this.keyIndices = this.indexToKeyIndices(this.workerId * keysPerWorker);
+            this.currentKey = this.indicesToKey(this.keyIndices);
+        }
     }
 
     stop() {
         this.isRunning = false;
-        self.postMessage({ 
-            type: 'complete', 
-            keysTested: this.keysTested 
-        });
+        self.postMessage({ type: 'complete', keysTested: this.keysTested });
     }
 }
 
