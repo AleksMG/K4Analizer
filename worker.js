@@ -45,7 +45,7 @@ class OptimizedK4Worker {
         this.currentStrategy = 'genetic';
         this.population = [];
         this.populationSize = 30;
-        this.mutationRate = 0.2;
+        this.mutationRate = 0.15;
         this.crossoverRate = 0.6;
         this.keySpace = {};
         this.workQueue = [];
@@ -127,7 +127,7 @@ class OptimizedK4Worker {
                 await this.generateNewWork();
             }
             
-            if (performance.now() - this.lastReportTime > 1000) {
+            if (performance.now() - this.lastReportTime > 10000) {
                 this.reportProgress();
                 this.lastReportTime = performance.now();
             }
