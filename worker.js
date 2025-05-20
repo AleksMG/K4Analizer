@@ -45,7 +45,7 @@ class OptimizedK4Worker {
         this.currentStrategy = 'genetic';
         this.population = [];
         this.populationSize = 30;
-        this.mutationRate = 0.2;
+        this.mutationRate = 0.15;
         this.crossoverRate = 0.6;
         this.keySpace = {};
         this.workQueue = [];
