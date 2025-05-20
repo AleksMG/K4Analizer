@@ -44,12 +44,12 @@ class OptimizedK4Worker {
         this.primaryTarget = 'BERLINCLOCK';
         this.currentStrategy = 'genetic';
         this.population = [];
-        this.populationSize = 15;
-        this.mutationRate = 0.25;
+        this.populationSize = 30;
+        this.mutationRate = 0.2;
         this.crossoverRate = 0.6;
         this.keySpace = {};
         this.workQueue = [];
-        this.workBatchSize = 20000;
+        this.workBatchSize = 10000;
         this.patternsRegex = this.buildPatternsRegex();
 
         // Initialize charMap
@@ -127,7 +127,7 @@ class OptimizedK4Worker {
                 await this.generateNewWork();
             }
             
-            if (performance.now() - this.lastReportTime > 10000) {
+            if (performance.now() - this.lastReportTime > 1000) {
                 this.reportProgress();
                 this.lastReportTime = performance.now();
             }
