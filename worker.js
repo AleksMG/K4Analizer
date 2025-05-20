@@ -49,7 +49,7 @@ class OptimizedK4Worker {
         this.crossoverRate = 0.7;
         this.keySpace = {};
         this.workQueue = [];
-        this.workBatchSize = 1000;
+        this.workBatchSize = 10000;
         this.patternsRegex = this.buildPatternsRegex();
 
         // Initialize charMap
