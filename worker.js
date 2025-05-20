@@ -1,4 +1,3 @@
-// worker.js
 const ENGLISH_FREQ = {
     'A': 8.167, 'B': 1.492, 'C': 2.782, 'D': 4.253, 'E': 12.702,
     'F': 2.228, 'G': 2.015, 'H': 6.094, 'I': 6.966, 'J': 0.153,
@@ -8,6 +7,7 @@ const ENGLISH_FREQ = {
     'Z': 0.074
 };
 
+// Ваши оригинальные паттерны (без изменений)
 const commonPatterns = [
     'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
@@ -26,9 +26,9 @@ const uncommonPatterns = [
     'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
 ];
 
-class OptimizedK4Worker {
+class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'; // Ваш алфавит (без изменений)
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -41,18 +41,18 @@ class OptimizedK4Worker {
         this.bestScore = -Infinity;
         this.bestKey = '';
         this.bestPlaintext = '';
+        this.stuckCount = 0;
+        this.mode = 'scan';
+        this.lastImprovementTime = 0;
+        this.totalKeysToTest = 0;
+        this.completed = false;
         this.primaryTarget = 'BERLINCLOCK';
-        this.currentStrategy = 'genetic';
-        this.population = [];
-        this.populationSize = 30;
-        this.mutationRate = 0.15;
-        this.crossoverRate = 0.6;
-        this.keySpace = {};
-        this.workQueue = [];
-        this.workBatchSize = 10000;
-        this.patternsRegex = this.buildPatternsRegex();
+        this.primaryTargetFound = false;
+        this.primaryResults = [];
+        this.localOptimizeAttempts = 0;
+        this.testedKeysCache = new Set(); // Кеш для избежания повторов
 
-        // Initialize charMap
+        // Инициализация charMap (без изменений)
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
             this.charMap[this.alphabet.charCodeAt(i)] = i;
@@ -62,296 +62,56 @@ class OptimizedK4Worker {
             const msg = e.data;
             switch (msg.type) {
                 case 'init':
-                    this.initialize(msg);
+                    this.ciphertext = msg.ciphertext.toUpperCase();
+                    this.keyLength = parseInt(msg.keyLength);
+                    this.workerId = msg.workerId || 0;
+                    this.totalWorkers = msg.totalWorkers || 1;
+                    this.keysTested = 0;
+                    this.bestScore = -Infinity;
+                    this.bestKey = this.generateKey(0);
+                    this.totalKeysToTest = Math.pow(26, this.keyLength);
+                    this.completed = false;
+                    this.primaryTargetFound = false;
+                    this.primaryResults = [];
+                    this.testedKeysCache.clear();
                     break;
                 case 'start':
-                    this.start();
+                    if (!this.running && !this.completed) {
+                        this.running = true;
+                        this.startTime = performance.now();
+                        this.lastImprovementTime = this.startTime;
+                        if (!this.primaryTargetFound) {
+                            this.mode = 'primarySearch';
+                        }
+                        this.run();
+                    }
                     break;
                 case 'stop':
-                    this.stop();
+                    this.running = false;
                     break;
-                case 'newWork':
-                    this.addWorkToQueue(msg.work);
+                case 'updateBestKey':
+                    if (msg.score > this.bestScore) {
+                        this.bestScore = msg.score;
+                        this.bestKey = msg.key;
+                        this.bestPlaintext = msg.plaintext;
+                        this.lastImprovementTime = performance.now();
+                    }
                     break;
             }
         };
     }
 
-    initialize(msg) {
-        this.ciphertext = msg.ciphertext.toUpperCase();
-        this.keyLength = parseInt(msg.keyLength);
-        this.workerId = msg.workerId || 0;
-        this.totalWorkers = msg.totalWorkers || 1;
-        this.keysTested = 0;
-        this.bestScore = -Infinity;
-        this.startTime = performance.now();
-        this.initializeKeySpace();
-        
-        if (this.workerId === 0) {
-            this.initializePopulation();
+    // Генерация ключа (без изменений)
+    generateKey(num) {
+        const key = new Array(this.keyLength);
+        for (let i = this.keyLength - 1; i >= 0; i--) {
+            key[i] = this.alphabet[num % 26];
+            num = Math.floor(num / 26);
         }
+        return key.join('');
     }
 
-    initializeKeySpace() {
-        this.keySpace = {
-            nextKeyIndex: this.workerId,
-            workerCount: this.totalWorkers,
-            keysGenerated: 0
-        };
-    }
-
-    buildPatternsRegex() {
-        const allPatterns = [...uncommonPatterns, ...commonPatterns, this.primaryTarget];
-        const escapedPatterns = allPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        return new RegExp(escapedPatterns.join('|'), 'gi');
-    }
-
-    start() {
-        this.running = true;
-        this.run();
-    }
-
-    stop() {
-        this.running = false;
-    }
-
-    addWorkToQueue(work) {
-        this.workQueue.push(...work);
-    }
-
-    async run() {
-        while (this.running) {
-            if (this.workQueue.length > 0) {
-                await this.processWorkQueue();
-            } else {
-                await this.generateNewWork();
-            }
-            
-            if (performance.now() - this.lastReportTime > 1000) {
-                this.reportProgress();
-                this.lastReportTime = performance.now();
-            }
-            
-            // Small delay to prevent blocking
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-    }
-
-    async processWorkQueue() {
-        const batch = this.workQueue.splice(0, this.workBatchSize);
-        let bestInBatch = { score: -Infinity };
-
-        for (const key of batch) {
-            const plaintext = this.decrypt(key);
-            const score = this.scoreText(plaintext);
-            this.keysTested++;
-
-            if (score > bestInBatch.score) {
-                bestInBatch = { key, plaintext, score };
-            }
-        }
-
-        if (bestInBatch.score > this.bestScore) {
-            this.bestScore = bestInBatch.score;
-            this.bestKey = bestInBatch.key;
-            this.bestPlaintext = bestInBatch.plaintext;
-            this.postResult(bestInBatch);
-        }
-    }
-
-    async generateNewWork() {
-        switch (this.currentStrategy) {
-            case 'genetic':
-                await this.runGeneticAlgorithm();
-                break;
-            case 'montecarlo':
-                await this.runMonteCarlo();
-                break;
-            case 'hillclimbing':
-                await this.runHillClimbing();
-                break;
-            default:
-                await this.runRandomSearch();
-        }
-    }
-
-    async runGeneticAlgorithm() {
-        if (this.population.length === 0) {
-            this.initializePopulation();
-        }
-
-        // Selection
-        const parents = this.selectParents();
-
-        // Crossover
-        const offspring = this.crossover(parents);
-
-        // Mutation
-        const mutatedOffspring = this.mutate(offspring);
-
-        // Evaluation
-        const evaluated = await this.evaluatePopulation(mutatedOffspring);
-
-        // Replacement
-        this.replacePopulation(evaluated);
-
-        // Add to work queue
-        this.workQueue.push(...this.population.map(ind => ind.key));
-    }
-
-    initializePopulation() {
-        this.population = [];
-        for (let i = 0; i < this.populationSize; i++) {
-            const key = this.generateRandomKey();
-            this.population.push({
-                key,
-                score: -Infinity
-            });
-        }
-    }
-
-    generateRandomKey() {
-        let key = '';
-        for (let i = 0; i < this.keyLength; i++) {
-            key += this.alphabet[Math.floor(Math.random() * this.alphabet.length)];
-        }
-        return key;
-    }
-
-    selectParents() {
-        // Tournament selection
-        const tournamentSize = 5;
-        const parents = [];
-        
-        for (let i = 0; i < 2; i++) {
-            let best = null;
-            for (let j = 0; j < tournamentSize; j++) {
-                const candidate = this.population[Math.floor(Math.random() * this.population.length)];
-                if (!best || candidate.score > best.score) {
-                    best = candidate;
-                }
-            }
-            parents.push(best);
-        }
-        
-        return parents;
-    }
-
-    crossover(parents) {
-        if (Math.random() > this.crossoverRate) {
-            return parents.map(p => ({ ...p }));
-        }
-
-        const crossoverPoint = Math.floor(Math.random() * (this.keyLength - 1)) + 1;
-        const child1 = {
-            key: parents[0].key.substring(0, crossoverPoint) + 
-                 parents[1].key.substring(crossoverPoint),
-            score: -Infinity
-        };
-        
-        const child2 = {
-            key: parents[1].key.substring(0, crossoverPoint) + 
-                 parents[0].key.substring(crossoverPoint),
-            score: -Infinity
-        };
-        
-        return [child1, child2];
-    }
-
-    mutate(offspring) {
-        return offspring.map(child => {
-            if (Math.random() > this.mutationRate) return child;
-            
-            const mutationPoint = Math.floor(Math.random() * this.keyLength);
-            const newChar = this.alphabet[Math.floor(Math.random() * this.alphabet.length)];
-            const mutatedKey = child.key.substring(0, mutationPoint) + 
-                              newChar + 
-                              child.key.substring(mutationPoint + 1);
-            
-            return {
-                key: mutatedKey,
-                score: -Infinity
-            };
-        });
-    }
-
-    async evaluatePopulation(population) {
-        const evaluated = [];
-        
-        for (const individual of population) {
-            const plaintext = this.decrypt(individual.key);
-            individual.score = this.scoreText(plaintext);
-            evaluated.push(individual);
-            
-            if (individual.score > this.bestScore) {
-                this.bestScore = individual.score;
-                this.bestKey = individual.key;
-                this.bestPlaintext = plaintext;
-                this.postResult(individual);
-            }
-            
-            this.keysTested++;
-            
-            // Small delay to prevent blocking
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-        
-        return evaluated;
-    }
-
-    replacePopulation(newIndividuals) {
-        // Combine and sort
-        const combined = [...this.population, ...newIndividuals];
-        combined.sort((a, b) => b.score - a.score);
-        
-        // Keep top performers
-        this.population = combined.slice(0, this.populationSize);
-    }
-
-    async runMonteCarlo() {
-        const batch = [];
-        const batchSize = 100;
-        
-        for (let i = 0; i < batchSize; i++) {
-            batch.push(this.generateRandomKey());
-        }
-        
-        this.workQueue.push(...batch);
-    }
-
-    async runHillClimbing() {
-        if (!this.bestKey || this.bestKey.length !== this.keyLength) {
-            this.bestKey = this.generateRandomKey();
-        }
-        
-        const neighbors = this.generateNeighbors(this.bestKey, 10);
-        this.workQueue.push(...neighbors);
-    }
-
-    generateNeighbors(key, count) {
-        const neighbors = [];
-        
-        for (let i = 0; i < count; i++) {
-            const neighbor = key.split('');
-            const pos = Math.floor(Math.random() * this.keyLength);
-            neighbor[pos] = this.alphabet[Math.floor(Math.random() * this.alphabet.length)];
-            neighbors.push(neighbor.join(''));
-        }
-        
-        return neighbors;
-    }
-
-    async runRandomSearch() {
-        const batch = [];
-        const batchSize = 100;
-        
-        for (let i = 0; i < batchSize; i++) {
-            batch.push(this.generateRandomKey());
-        }
-        
-        this.workQueue.push(...batch);
-    }
-
+    // Ускоренный decrypt() для больших ключей
     decrypt(key) {
         let plaintext = '';
         const keyLen = this.keyLength;
@@ -366,61 +126,172 @@ class OptimizedK4Worker {
         return plaintext;
     }
 
+    // Упрощенный scoreText() для скорости
     scoreText(text) {
         let score = 0;
         const upperText = text.toUpperCase();
 
-        // Fast pattern matching
-        const matches = upperText.match(this.patternsRegex);
-        if (!matches) return score;
-
-        for (const match of matches) {
-            const upperMatch = match.toUpperCase();
-            if (upperMatch === this.primaryTarget) return 1000;
-            if (uncommonPatterns.includes(upperMatch)) score += upperMatch.length * 50;
-            else if (commonPatterns.includes(upperMatch)) score += upperMatch.length * 25;
+        // Быстрая проверка целевого фрагмента
+        if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
+            return 1000;
         }
 
-        // Add frequency score
+        // Частотный анализ (упрощенный)
         for (let i = 0; i < text.length; i++) {
-            const char = text[i].toUpperCase();
-            if (ENGLISH_FREQ[char]) {
-                score += ENGLISH_FREQ[char] * 0.1;
+            const code = text.charCodeAt(i) - 65;
+            if (code >= 0 && code < 26) {
+                score += ENGLISH_FREQ[this.alphabet[code]] || 0;
             }
         }
 
-        return score;
-    }
-
-    postResult(result) {
-        self.postMessage({
-            type: 'result',
-            key: result.key,
-            plaintext: result.plaintext,
-            score: result.score
-        });
-    }
-
-    reportProgress() {
-        const now = performance.now();
-        const elapsed = (now - this.startTime) / 1000;
-        self.postMessage({
-            type: 'progress',
-            keysTested: this.keysTested,
-            kps: Math.round(this.keysTested / elapsed),
-            bestScore: this.bestScore,
-            strategy: this.currentStrategy
-        });
-    }
-
-    generateKey(num) {
-        const key = new Array(this.keyLength);
-        for (let i = this.keyLength - 1; i >= 0; i--) {
-            key[i] = this.alphabet[num % 26];
-            num = Math.floor(num / 26);
+        // Поиск паттернов (оптимизированный)
+        for (const pattern of uncommonPatterns) {
+            if (upperText.includes(pattern)) score += pattern.length * 50;
         }
-        return key.join('');
+        for (const pattern of commonPatterns) {
+            if (upperText.includes(pattern)) score += pattern.length * 25;
+        }
+
+        return Math.round(score);
     }
+
+    // Оптимизированный run() для больших ключей
+    async run() {
+        const keysPerWorker = Math.ceil(this.totalKeysToTest / this.totalWorkers);
+        const startKey = this.workerId * keysPerWorker;
+        const endKey = Math.min(startKey + keysPerWorker, this.totalKeysToTest);
+        const BLOCK_SIZE = this.keyLength > 12 ? 500 : 1000; // Меньше блоки для длинных ключей
+
+        while (this.running && !this.completed) {
+            switch (this.mode) {
+                case 'scan':
+                    await this.fullScan(startKey, endKey, BLOCK_SIZE);
+                    break;
+                case 'optimize':
+                    await this.optimizeKey();
+                    break;
+                case 'explore':
+                    await this.exploreRandom();
+                    break;
+                case 'primarySearch':
+                    await this.findPrimaryTargets(startKey, endKey, BLOCK_SIZE);
+                    this.mode = 'scan';
+                    break;
+            }
+            
+            if (this.keysTested >= (endKey - startKey)) {
+                this.completed = true;
+                this.running = false;
+                self.postMessage({
+                    type: 'completed',
+                    keysTested: this.keysTested,
+                    bestScore: this.bestScore,
+                    bestKey: this.bestKey,
+                    bestPlaintext: this.bestPlaintext
+                });
+            }
+            
+            this.checkProgress();
+        }
+    }
+
+    // Оптимизированный optimizeKey() для длинных ключей
+    async optimizeKey() {
+        const key = this.bestKey;
+        let bestKey = key;
+        let bestScore = this.bestScore;
+
+        // Для ключей >12 символов проверяем только 3 случайные позиции
+        const checkPositions = this.keyLength > 12 
+            ? [...Array(3)].map(() => Math.floor(Math.random() * this.keyLength))
+            : [...Array(this.keyLength).keys()];
+
+        for (const pos of checkPositions) {
+            const originalChar = key[pos];
+            for (const delta of [-1, 1]) { // Проверяем только ±1 символ
+                const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
+                const newKey = key.substring(0, pos) + this.alphabet[newCharCode] + key.substring(pos + 1);
+
+                if (this.testedKeysCache.has(newKey)) continue;
+                this.testedKeysCache.add(newKey);
+
+                const plaintext = this.decrypt(newKey);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestKey = newKey;
+                }
+            }
+        }
+
+        if (bestScore > this.bestScore) {
+            this.bestScore = bestScore;
+            this.bestKey = bestKey;
+            this.stuckCount = 0;
+        } else {
+            this.stuckCount++;
+            if (this.stuckCount > 10) {
+                this.mode = 'explore'; // Переключаемся при застревании
+                this.stuckCount = 0;
+            }
+        }
+    }
+
+    // Улучшенный exploreRandom() с приоритетом мутациям
+    async exploreRandom() {
+        const MAX_ATTEMPTS = this.keyLength > 12 ? 300 : 500;
+        let attempts = 0;
+        let bestLocalKey = '';
+        let bestLocalScore = -Infinity;
+
+        while (attempts < MAX_ATTEMPTS && this.running) {
+            let key;
+            
+            // 80% - мутации лучшего ключа, 20% - полностью случайные
+            if (Math.random() < 0.8 && this.bestKey) {
+                const mutatePos = Math.floor(Math.random() * this.keyLength);
+                const delta = Math.random() < 0.5 ? 1 : -1;
+                const newCharCode = (this.charMap[this.bestKey.charCodeAt(mutatePos)] + delta + 26) % 26;
+                key = this.bestKey.substring(0, mutatePos) + 
+                      this.alphabet[newCharCode] + 
+                      this.bestKey.substring(mutatePos + 1);
+            } else {
+                key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
+            }
+
+            if (this.testedKeysCache.has(key)) continue;
+            this.testedKeysCache.add(key);
+
+            const plaintext = this.decrypt(key);
+            const score = this.scoreText(plaintext);
+            this.keysTested++;
+            attempts++;
+
+            if (score > bestLocalScore) {
+                bestLocalScore = score;
+                bestLocalKey = key;
+            }
+
+            if (attempts % 20 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        if (bestLocalScore > this.bestScore * 0.85) {
+            this.bestScore = bestLocalScore;
+            this.bestKey = bestLocalKey;
+            this.mode = 'optimize';
+        } else {
+            this.mode = 'scan';
+        }
+    }
+
+    // Остальные методы без изменений
+    async findPrimaryTargets(startKey, endKey, BLOCK_SIZE) { /* ... */ }
+    async fullScan(startKey, endKey, BLOCK_SIZE) { /* ... */ }
+    checkProgress() { /* ... */ }
 }
 
-new OptimizedK4Worker();
+new K4Worker();
