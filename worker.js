@@ -21,7 +21,7 @@ const uncommonPatterns = [
     'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND', 'PALIMPSEST',
     'ABSCISSA', 'CLOCKWISE', 'DIAGONAL', 'VERTICAL',
     'HORIZONTAL', 'OBELISK', 'PYRAMID', 'SCULPTURE', 'CIPHER', 'ENCRYPT', 'DECRYPT',
-    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPARATELY', 'WEAKLY', 'DEEP',
+    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPERATELY', 'WEAKLY', 'DEEP',
     'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
 ];
 
@@ -204,7 +204,7 @@ class K4Worker {
     }
 
     async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 50000;
+        const BLOCK_SIZE = 20000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
@@ -248,7 +248,7 @@ class K4Worker {
     }
 
     async fullScan(startKey, endKey) {
-        const BLOCK_SIZE = 50000;
+        const BLOCK_SIZE = 20000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
             
@@ -288,7 +288,7 @@ class K4Worker {
 
         for (let pos = 0; pos < this.keyLength && this.running; pos++) {
             const originalChar = keyChars[pos];
-            for (const delta of [-1, 1, -2, 2, -3, 3]) {
+            for (const delta of [-1, 1, -2, 2, -3, 3, -4, 4]) {
                 const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
                 const newChar = this.alphabet[newCharCode];
                 keyChars[pos] = newChar;
