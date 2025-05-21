@@ -21,7 +21,7 @@ this.commonPatterns = [
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NASA', 'FBI', 'USA', 'RUS',
     'AGENT', 'CODE', 'SECRET', 'MESSAGE', 'WORLD', 'COUNTRY', 'CITY', 'TOWN',
-    'PERSON', 'MAN', 'ENEMY', 'ALLY'
+    'PERSON', 'KEY', 'ENEMY', 'ALLY'
 ];
 this.uncommonPatterns = [
     'KRYPTOS', 'BERLINCLOCK', 'EAST', 'NORTH', 'WEST',
@@ -29,7 +29,7 @@ this.uncommonPatterns = [
     'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND', 'PALIMPSEST',
     'ABSCISSA', 'CLOCKWISE', 'DIAGONAL', 'VERTICAL',
     'HORIZONTAL', 'OBELISK', 'PYRAMID', 'SCULPTURE', 'CIPHER', 'ENCRYPT', 'DECRYPT',
-    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPARATELY', 'WEAKLY', 'SCRATCHES',
+    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPARATELY', 'WEAKLY', 'DEEP',
     'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
