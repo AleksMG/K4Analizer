@@ -12,7 +12,7 @@ const commonPatterns = [
     'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
     'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NASA', 'FBI', 'USA', 'RUS',
     'AGENT', 'CODE', 'SECRET', 'MESSAGE', 'WORLD', 'COUNTRY', 'CITY', 'TOWN',
-    'PERSON', 'KEY', 'ENEMY', 'ALLY'
+    'PERSON', 'KEY', 'ENEMY', 'ALLY', 'OF', 'TO'
 ];
 
 const uncommonPatterns = [
