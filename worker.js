@@ -381,4 +381,4 @@ class K4Worker {
     }
 }
 
-new Worker();
+new K4Worker();
