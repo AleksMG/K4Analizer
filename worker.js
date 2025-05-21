@@ -25,6 +25,61 @@ const uncommonPatterns = [
     'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
 ];
 
+class SimpleBloomFilter {
+    constructor(size = 1024 * 1024 * 8) {
+        this.size = size;
+        this.buckets = new Uint8Array(Math.ceil(size / 8));
+    }
+
+    hash1(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = (hash << 5) - hash + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash) % this.size;
+    }
+
+    hash2(str) {
+        let hash = 5381;
+        for (let i = 0; i < str.length; i++) {
+            hash = (hash * 33) ^ str.charCodeAt(i);
+        }
+        return Math.abs(hash) % this.size;
+    }
+
+    hash3(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = (hash << 7) - hash + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash) % this.size;
+    }
+
+    add(key) {
+        const h1 = this.hash1(key);
+        const h2 = this.hash2(key);
+        const h3 = this.hash3(key);
+        
+        this.buckets[Math.floor(h1 / 8)] |= 1 << (h1 % 8);
+        this.buckets[Math.floor(h2 / 8)] |= 1 << (h2 % 8);
+        this.buckets[Math.floor(h3 / 8)] |= 1 << (h3 % 8);
+    }
+
+    test(key) {
+        const h1 = this.hash1(key);
+        const h2 = this.hash2(key);
+        const h3 = this.hash3(key);
+        
+        return !!(
+            (this.buckets[Math.floor(h1 / 8)] & (1 << (h1 % 8))) &&
+            (this.buckets[Math.floor(h2 / 8)] & (1 << (h2 % 8))) &&
+            (this.buckets[Math.floor(h3 / 8)] & (1 << (h3 % 8)))
+        );
+    }
+}
+
 class K4Worker {
     constructor() {
         this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
@@ -44,9 +99,10 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.testedKeys = new Set();
+        this.testedKeysBloom = new SimpleBloomFilter();
+        this.useBloomFilter = false;
         this.totalKeysToTest = 0;
         this.completed = false;
-
         this.primaryTarget = 'BERLINCLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
@@ -68,10 +124,12 @@ class K4Worker {
                     this.bestScore = -Infinity;
                     this.bestKey = this.generateKey(0);
                     this.testedKeys.clear();
+                    this.testedKeysBloom = new SimpleBloomFilter();
                     this.totalKeysToTest = Math.pow(26, this.keyLength);
                     this.completed = false;
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
+                    this.useBloomFilter = this.keyLength > 5;
                     break;
                 case 'start':
                     if (!this.running && !this.completed) {
@@ -118,6 +176,21 @@ class K4Worker {
         return plaintext;
     }
 
+    isKeyTested(key) {
+        if (!this.useBloomFilter) {
+            return this.testedKeys.has(key);
+        }
+        return this.testedKeys.size < 100000 ? this.testedKeys.has(key) : this.testedKeysBloom.test(key);
+    }
+
+    addTestedKey(key) {
+        if (!this.useBloomFilter || this.testedKeys.size < 100000) {
+            this.testedKeys.add(key);
+        } else {
+            this.testedKeysBloom.add(key);
+        }
+    }
+
     scoreText(text) {
         const upperText = text.toUpperCase();
         if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
@@ -128,7 +201,7 @@ class K4Worker {
         const freq = new Uint16Array(26);
         let totalLetters = 0;
 
-        // Частотный анализ
+        // Оригинальный частотный анализ
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
             if (code >= 65 && code <= 90) {
@@ -145,7 +218,7 @@ class K4Worker {
             }
         }
 
-        // Поиск распространенных слов
+        // Оригинальный поиск паттернов
         for (const pattern of commonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
@@ -153,7 +226,6 @@ class K4Worker {
             }
         }
 
-        // Поиск специальных слов
         for (const pattern of uncommonPatterns) {
             let pos = -1;
             while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
@@ -186,7 +258,6 @@ class K4Worker {
                     break;
             }
             
-            // Проверка завершения
             if (this.keysTested >= (endKey - startKey)) {
                 this.completed = true;
                 this.running = false;
@@ -203,50 +274,6 @@ class K4Worker {
         }
     }
 
-    async findPrimaryTargets(startKey, endKey) {
-        const BLOCK_SIZE = 50000;
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            
-            for (let i = keyNum; i < blockEnd; i++) {
-                const key = this.generateKey(i);
-                if (this.testedKeys.has(key)) continue;
-                this.testedKeys.add(key);
-                
-                const plaintext = this.decrypt(key);
-                const score = this.scoreText(plaintext);
-                this.keysTested++;
-
-                if (plaintext.includes(this.primaryTarget)) {
-                    this.primaryResults.push({ key, plaintext, score });
-                    self.postMessage({
-                        type: 'primaryResult',
-                        key: key,
-                        plaintext: plaintext,
-                        score: score
-                    });
-                }
-                
-                if (score > this.bestScore) {
-                    this.bestScore = score;
-                    this.bestKey = key;
-                    this.bestPlaintext = plaintext;
-                    this.lastImprovementTime = performance.now();
-                    self.postMessage({
-                        type: 'result',
-                        key: this.bestKey,
-                        plaintext: this.bestPlaintext,
-                        score: this.bestScore
-                    });
-                }
-            }
-
-            if (performance.now() - this.lastReportTime > 1000) {
-                this.checkProgress();
-            }
-        }
-    }
-
     async fullScan(startKey, endKey) {
         const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
@@ -254,8 +281,8 @@ class K4Worker {
             
             for (let i = keyNum; i < blockEnd; i++) {
                 const key = this.generateKey(i);
-                if (this.testedKeys.has(key)) continue;
-                this.testedKeys.add(key);
+                if (this.isKeyTested(key)) continue;
+                this.addTestedKey(key);
                 
                 const plaintext = this.decrypt(key);
                 const score = this.scoreText(plaintext);
@@ -294,8 +321,8 @@ class K4Worker {
                 keyChars[pos] = newChar;
                 const newKey = keyChars.join('');
                 
-                if (this.testedKeys.has(newKey)) continue;
-                this.testedKeys.add(newKey);
+                if (this.isKeyTested(newKey)) continue;
+                this.addTestedKey(newKey);
                 
                 const plaintext = this.decrypt(newKey);
                 const score = this.scoreText(plaintext);
@@ -338,14 +365,14 @@ class K4Worker {
         do {
             key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
             attempts++;
-        } while (this.testedKeys.has(key) && attempts < maxAttempts && this.running);
+        } while (this.isKeyTested(key) && attempts < maxAttempts && this.running);
         
         if (attempts >= maxAttempts || !this.running) {
             this.mode = 'scan';
             return;
         }
         
-        this.testedKeys.add(key);
+        this.addTestedKey(key);
         const plaintext = this.decrypt(key);
         const score = this.scoreText(plaintext);
         this.keysTested++;
@@ -357,6 +384,50 @@ class K4Worker {
         }
     }
 
+    async findPrimaryTargets(startKey, endKey) {
+        const BLOCK_SIZE = 50000;
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
+            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
+            
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                if (this.isKeyTested(key)) continue;
+                this.addTestedKey(key);
+                
+                const plaintext = this.decrypt(key);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (plaintext.includes(this.primaryTarget)) {
+                    this.primaryResults.push({ key, plaintext, score });
+                    self.postMessage({
+                        type: 'primaryResult',
+                        key: key,
+                        plaintext: plaintext,
+                        score: score
+                    });
+                }
+                
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    this.bestKey = key;
+                    this.bestPlaintext = plaintext;
+                    this.lastImprovementTime = performance.now();
+                    self.postMessage({
+                        type: 'result',
+                        key: this.bestKey,
+                        plaintext: this.bestPlaintext,
+                        score: this.bestScore
+                    });
+                }
+            }
+
+            if (performance.now() - this.lastReportTime > 1000) {
+                this.checkProgress();
+            }
+        }
+    }
+
     checkProgress() {
         const now = performance.now();
         if (now - this.lastReportTime > 1000) {
@@ -364,13 +435,13 @@ class K4Worker {
             const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
             const completion = Math.min(100, (this.keysTested / (this.totalKeysToTest / this.totalWorkers)) * 100);
             
+            // Возвращаем оригинальный формат сообщения о прогрессе
             self.postMessage({
                 type: 'progress',
                 keysTested: this.keysTested,
                 totalKeys: this.totalKeysToTest,
                 kps: kps,
                 completion: completion.toFixed(2),
-                mode: this.mode,
                 bestScore: this.bestScore,
                 bestKey: this.bestKey,
                 bestPlaintext: this.bestPlaintext
