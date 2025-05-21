@@ -82,7 +82,7 @@ class SimpleBloomFilter {
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'.split('');
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
@@ -123,24 +123,24 @@ class K4Worker {
             const msg = e.data;
             switch (msg.type) {
                 case 'init':
-                    this.initializeWorker(msg);
+                    this.handleInit(msg);
                     break;
                 case 'start':
-                    this.startWorker();
+                    this.handleStart();
                     break;
                 case 'stop':
-                    this.stopWorker();
+                    this.handleStop();
                     break;
                 case 'updateBestKey':
-                    this.updateBestKey(msg);
+                    this.handleUpdateBestKey(msg);
                     break;
             }
         };
     }
 
-    initializeWorker(msg) {
+    handleInit(msg) {
         this.ciphertext = msg.ciphertext.toUpperCase();
-        this.cipherIndices = this.precomputeCipherIndices();
+        this.cipherIndices = this.precomputeIndices();
         this.keyLength = parseInt(msg.keyLength);
         this.workerId = msg.workerId || 0;
         this.totalWorkers = msg.totalWorkers || 1;
@@ -148,7 +148,7 @@ class K4Worker {
         this.useBloomFilter = this.keyLength > 5;
     }
 
-    precomputeCipherIndices() {
+    precomputeIndices() {
         const indices = new Uint8Array(this.ciphertext.length);
         for (let i = 0; i < this.ciphertext.length; i++) {
             indices[i] = this.charMap[this.ciphertext.charCodeAt(i)];
@@ -167,9 +167,12 @@ class K4Worker {
         this.primaryTargetFound = false;
         this.primaryResults = [];
         this.bloomActive = false;
+        this.startTime = 0;
+        this.lastReportTime = 0;
+        this.stuckCount = 0;
     }
 
-    startWorker() {
+    handleStart() {
         if (!this.running && !this.completed) {
             this.running = true;
             this.startTime = performance.now();
@@ -179,11 +182,11 @@ class K4Worker {
         }
     }
 
-    stopWorker() {
+    handleStop() {
         this.running = false;
     }
 
-    updateBestKey(msg) {
+    handleUpdateBestKey(msg) {
         if (msg.score > this.bestScore) {
             this.bestScore = msg.score;
             this.bestKey = msg.key;
@@ -194,9 +197,10 @@ class K4Worker {
 
     generateKey(num) {
         const key = new Array(this.keyLength);
+        let temp = num;
         for (let i = this.keyLength - 1; i >= 0; i--) {
-            key[i] = this.alphabet[num % 26];
-            num = Math.floor(num / 26);
+            key[i] = this.alphabet[temp % 26];
+            temp = Math.floor(temp / 26);
         }
         return key.join('');
     }
@@ -257,81 +261,61 @@ class K4Worker {
             }
         }
 
-        const commonCount = (text.match(this.commonRegex) || []).length;
-        const uncommonCount = (text.match(this.uncommonRegex) || []).length;
-        score += commonCount * 25 + uncommonCount * 50;
+        const commonMatches = (text.match(this.commonRegex) || []).length;
+        const uncommonMatches = (text.match(this.uncommonRegex) || []).length;
+        score += commonMatches * 25 + uncommonMatches * 50;
 
         return Math.round(score);
     }
 
     async processKeys() {
-        const startKey = this.workerId * Math.floor(this.totalKeysToTest / this.totalWorkers);
-        const endKey = (this.workerId === this.totalWorkers - 1) 
-            ? this.totalKeysToTest 
-            : startKey + Math.floor(this.totalKeysToTest / this.totalWorkers);
+        const startKey = Math.floor(this.totalKeysToTest * this.workerId / this.totalWorkers);
+        const endKey = Math.floor(this.totalKeysToTest * (this.workerId + 1) / this.totalWorkers);
 
         while (this.running && !this.completed) {
             switch (this.mode) {
                 case 'primarySearch':
-                    await this.processPrimarySearch(startKey, endKey);
+                    await this.searchPrimaryTarget(startKey, endKey);
                     break;
                 case 'scan':
-                    await this.processScan(startKey, endKey);
+                    await this.fullKeyScan(startKey, endKey);
                     break;
                 case 'optimize':
-                    await this.processOptimization();
+                    await this.optimizeCurrentKey();
                     break;
                 case 'explore':
-                    await this.processExploration();
+                    await this.exploreRandomKeys();
                     break;
             }
             this.checkCompletion(endKey);
+            this.checkProgress();
         }
     }
 
-    async processPrimarySearch(startKey, endKey) {
+    async searchPrimaryTarget(startKey, endKey) {
         const BLOCK_SIZE = 10000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            await this.processBlock(keyNum, blockEnd, true);
-            if (this.primaryTargetFound) break;
-            await this.yieldExecution();
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                if (this.isKeyTested(key)) continue;
+                this.addTestedKey(key);
+                
+                const plaintext = this.decrypt(key);
+                this.keysTested++;
+
+                if (plaintext.includes(this.primaryTarget)) {
+                    this.handlePrimaryFound(key, plaintext);
+                }
+            }
+            await this.yieldToMain();
         }
         this.mode = 'scan';
     }
 
-    async processScan(startKey, endKey) {
-        const BLOCK_SIZE = 50000;
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            await this.processBlock(keyNum, blockEnd, false);
-            await this.yieldExecution();
-            this.checkStagnation();
-        }
-    }
-
-    async processBlock(start, end, isPrimarySearch) {
-        for (let keyNum = start; keyNum < end && this.running; keyNum++) {
-            const key = this.generateKey(keyNum);
-            if (this.isKeyTested(key)) continue;
-            this.addTestedKey(key);
-            
-            const plaintext = this.decrypt(key);
-            const score = this.scoreText(plaintext);
-            this.keysTested++;
-
-            if (isPrimarySearch && plaintext.includes(this.primaryTarget)) {
-                this.handlePrimaryFound(key, plaintext, score);
-            }
-
-            if (score > this.bestScore) {
-                this.updateBestResults(key, plaintext, score);
-            }
-        }
-    }
-
-    handlePrimaryFound(key, plaintext, score) {
+    handlePrimaryFound(key, plaintext) {
         this.primaryTargetFound = true;
+        const score = this.scoreText(plaintext);
         this.primaryResults.push({ key, plaintext, score });
         self.postMessage({
             type: 'primaryResult',
@@ -341,6 +325,28 @@ class K4Worker {
         });
     }
 
+    async fullKeyScan(startKey, endKey) {
+        const BLOCK_SIZE = 50000;
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
+            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                if (this.isKeyTested(key)) continue;
+                this.addTestedKey(key);
+                
+                const plaintext = this.decrypt(key);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > this.bestScore) {
+                    this.updateBestResults(key, plaintext, score);
+                }
+            }
+            await this.yieldToMain();
+            this.checkStagnation();
+        }
+    }
+
     updateBestResults(key, plaintext, score) {
         this.bestScore = score;
         this.bestKey = key;
@@ -348,29 +354,29 @@ class K4Worker {
         this.lastImprovementTime = performance.now();
         self.postMessage({
             type: 'result',
-            key: this.bestKey,
-            plaintext: this.bestPlaintext,
-            score: this.bestScore
+            key: key,
+            plaintext: plaintext,
+            score: score
         });
     }
 
-    async processOptimization() {
+    async optimizeCurrentKey() {
         let improved = false;
-        const keyArr = this.bestKey.split('');
         const originalKey = this.bestKey;
+        const keyChars = originalKey.split('');
 
         for (let pos = 0; pos < this.keyLength && this.running; pos++) {
-            const originalChar = keyArr[pos];
+            const originalChar = keyChars[pos];
             for (const delta of [-1, 1, -2, 2]) {
-                keyArr[pos] = this.getShiftedChar(originalChar, delta);
-                const newKey = keyArr.join('');
+                keyChars[pos] = this.getShiftedChar(originalChar, delta);
+                const newKey = keyChars.join('');
                 if (this.processKeyVariation(newKey)) {
                     improved = true;
                     break;
                 }
             }
-            if (!improved) keyArr[pos] = originalChar;
-            await this.yieldExecution();
+            if (!improved) keyChars[pos] = originalChar;
+            await this.yieldToMain();
         }
 
         this.handleOptimizationResult(improved, originalKey);
@@ -397,35 +403,33 @@ class K4Worker {
     }
 
     handleOptimizationResult(improved, originalKey) {
-        if (!improved) {
+        if (improved) {
+            this.stuckCount = 0;
+            this.mode = 'optimize';
+        } else {
             this.stuckCount++;
-            if (this.stuckCount > 3) {
+            if (this.stuckCount > 2) {
                 this.mode = 'explore';
                 this.stuckCount = 0;
-            }
-        } else {
-            this.stuckCount = 0;
-            if (this.bestKey !== originalKey) {
-                this.mode = 'optimize';
             }
         }
     }
 
-    async processExploration() {
-        const MAX_ATTEMPTS = 1000;
+    async exploreRandomKeys() {
+        const MAX_ATTEMPTS = 500;
         for (let i = 0; i < MAX_ATTEMPTS && this.running; i++) {
             const key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
             if (this.processKeyVariation(key)) {
                 this.mode = 'optimize';
                 break;
             }
-            if (i % 50 === 0) await this.yieldExecution();
+            if (i % 50 === 0) await this.yieldToMain();
         }
-        if (this.running) this.mode = 'scan';
+        this.mode = 'scan';
     }
 
     checkCompletion(endKey) {
-        if (this.keysTested >= (endKey - this.workerId * (this.totalKeysToTest / this.totalWorkers))) {
+        if (this.keysTested >= (endKey - Math.floor(this.totalKeysToTest * this.workerId / this.totalWorkers))) {
             this.completed = true;
             this.running = false;
             self.postMessage({
@@ -444,17 +448,13 @@ class K4Worker {
         }
     }
 
-    yieldExecution() {
-        return new Promise(resolve => setTimeout(resolve, 0));
-    }
-
     checkProgress() {
         const now = performance.now();
         if (now - this.lastReportTime > 1000) {
             const elapsed = (now - this.startTime) / 1000;
             const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
             const completion = (this.keysTested / (this.totalKeysToTest / this.totalWorkers)) * 100;
-            
+
             self.postMessage({
                 type: 'progress',
                 keysTested: this.keysTested,
@@ -465,9 +465,13 @@ class K4Worker {
                 bestKey: this.bestKey,
                 bestPlaintext: this.bestPlaintext
             });
-            
+
             this.lastReportTime = now;
         }
+    }
+
+    yieldToMain() {
+        return new Promise(resolve => setTimeout(resolve, 0));
     }
 }
 
