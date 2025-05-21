@@ -25,68 +25,12 @@ const uncommonPatterns = [
     'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
 ];
 
-class SimpleBloomFilter {
-    constructor(size = 1024 * 1024 * 8) {
-        this.size = size;
-        this.buckets = new Uint8Array(Math.ceil(size / 8));
-    }
-
-    hash1(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = (hash << 5) - hash + str.charCodeAt(i);
-            hash |= 0;
-        }
-        return Math.abs(hash) % this.size;
-    }
-
-    hash2(str) {
-        let hash = 5381;
-        for (let i = 0; i < str.length; i++) {
-            hash = (hash * 33) ^ str.charCodeAt(i);
-        }
-        return Math.abs(hash) % this.size;
-    }
-
-    hash3(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = (hash << 7) - hash + str.charCodeAt(i);
-            hash |= 0;
-        }
-        return Math.abs(hash) % this.size;
-    }
-
-    add(key) {
-        const h1 = this.hash1(key);
-        const h2 = this.hash2(key);
-        const h3 = this.hash3(key);
-        
-        this.buckets[Math.floor(h1 / 8)] |= 1 << (h1 % 8);
-        this.buckets[Math.floor(h2 / 8)] |= 1 << (h2 % 8);
-        this.buckets[Math.floor(h3 / 8)] |= 1 << (h3 % 8);
-    }
-
-    test(key) {
-        const h1 = this.hash1(key);
-        const h2 = this.hash2(key);
-        const h3 = this.hash3(key);
-        
-        return !!(
-            (this.buckets[Math.floor(h1 / 8)] & (1 << (h1 % 8))) &&
-            (this.buckets[Math.floor(h2 / 8)] & (1 << (h2 % 8))) &&
-            (this.buckets[Math.floor(h3 / 8)] & (1 << (h3 % 8)))
-        );
-    }
-}
-
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK'.split('');
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
-        this.cipherIndices = [];
         this.keyLength = 0;
         this.workerId = 0;
         this.totalWorkers = 1;
@@ -100,96 +44,59 @@ class K4Worker {
         this.mode = 'scan';
         this.lastImprovementTime = 0;
         this.testedKeys = new Set();
-        this.testedKeysBloom = new SimpleBloomFilter();
-        this.bloomActive = false;
-        this.useBloomFilter = false;
         this.totalKeysToTest = 0;
         this.completed = false;
+
         this.primaryTarget = 'BERLINCLOCK';
         this.primaryTargetFound = false;
         this.primaryResults = [];
-        this.commonRegex = new RegExp(commonPatterns.join('|'), 'g');
-        this.uncommonRegex = new RegExp(uncommonPatterns.join('|'), 'g');
-        this.englishFreqArray = new Float32Array(26);
 
         this.charMap.fill(255);
         for (let i = 0; i < this.alphabet.length; i++) {
-            const char = this.alphabet[i];
-            this.charMap[char.charCodeAt(0)] = i;
-            this.englishFreqArray[i] = ENGLISH_FREQ[char] || 0;
+            this.charMap[this.alphabet.charCodeAt(i)] = i;
         }
 
         self.onmessage = (e) => {
             const msg = e.data;
             switch (msg.type) {
                 case 'init':
-                    this.initializeWorker(msg);
+                    this.ciphertext = msg.ciphertext.toUpperCase();
+                    this.keyLength = parseInt(msg.keyLength);
+                    this.workerId = msg.workerId || 0;
+                    this.totalWorkers = msg.totalWorkers || 1;
+                    this.keysTested = 0;
+                    this.bestScore = -Infinity;
+                    this.bestKey = this.generateKey(0);
+                    this.testedKeys.clear();
+                    this.totalKeysToTest = Math.pow(26, this.keyLength);
+                    this.completed = false;
+                    this.primaryTargetFound = false;
+                    this.primaryResults = [];
                     break;
                 case 'start':
-                    this.startWorker();
+                    if (!this.running && !this.completed) {
+                        this.running = true;
+                        this.startTime = performance.now();
+                        this.lastImprovementTime = this.startTime;
+                        if (!this.primaryTargetFound) {
+                            this.mode = 'primarySearch';
+                        }
+                        this.run();
+                    }
                     break;
                 case 'stop':
-                    this.stopWorker();
+                    this.running = false;
                     break;
                 case 'updateBestKey':
-                    this.updateBestKey(msg);
+                    if (msg.score > this.bestScore) {
+                        this.bestScore = msg.score;
+                        this.bestKey = msg.key;
+                        this.bestPlaintext = msg.plaintext;
+                        this.lastImprovementTime = performance.now();
+                    }
                     break;
             }
         };
-    }
-
-    initializeWorker(msg) {
-        this.ciphertext = msg.ciphertext.toUpperCase();
-        this.cipherIndices = this.precomputeCipherIndices();
-        this.keyLength = parseInt(msg.keyLength);
-        this.workerId = msg.workerId || 0;
-        this.totalWorkers = msg.totalWorkers || 1;
-        this.resetState();
-        this.useBloomFilter = this.keyLength > 5;
-    }
-
-    precomputeCipherIndices() {
-        const indices = new Uint8Array(this.ciphertext.length);
-        for (let i = 0; i < this.ciphertext.length; i++) {
-            indices[i] = this.charMap[this.ciphertext.charCodeAt(i)];
-        }
-        return indices;
-    }
-
-    resetState() {
-        this.keysTested = 0;
-        this.bestScore = -Infinity;
-        this.bestKey = this.generateKey(0);
-        this.testedKeys.clear();
-        this.testedKeysBloom = new SimpleBloomFilter();
-        this.totalKeysToTest = Math.pow(26, this.keyLength);
-        this.completed = false;
-        this.primaryTargetFound = false;
-        this.primaryResults = [];
-        this.bloomActive = false;
-    }
-
-    startWorker() {
-        if (!this.running && !this.completed) {
-            this.running = true;
-            this.startTime = performance.now();
-            this.lastImprovementTime = this.startTime;
-            this.mode = this.primaryTargetFound ? 'scan' : 'primarySearch';
-            this.processKeys();
-        }
-    }
-
-    stopWorker() {
-        this.running = false;
-    }
-
-    updateBestKey(msg) {
-        if (msg.score > this.bestScore) {
-            this.bestScore = msg.score;
-            this.bestKey = msg.key;
-            this.bestPlaintext = msg.plaintext;
-            this.lastImprovementTime = performance.now();
-        }
     }
 
     generateKey(num) {
@@ -201,46 +108,27 @@ class K4Worker {
         return key.join('');
     }
 
-    decrypt(keyStr) {
-        const keyIndices = new Uint8Array(this.keyLength);
-        for (let i = 0; i < keyStr.length; i++) {
-            keyIndices[i] = this.charMap[keyStr.charCodeAt(i)];
+    decrypt(key) {
+        let plaintext = '';
+        for (let i = 0; i < this.ciphertext.length; i++) {
+            const plainPos = (this.charMap[this.ciphertext.charCodeAt(i)] - 
+                           this.charMap[key.charCodeAt(i % this.keyLength)] + 26) % 26;
+            plaintext += this.alphabet[plainPos];
         }
-
-        const plaintext = new Array(this.cipherIndices.length);
-        for (let i = 0; i < this.cipherIndices.length; i++) {
-            const plainPos = (this.cipherIndices[i] - keyIndices[i % this.keyLength] + 26) % 26;
-            plaintext[i] = this.alphabet[plainPos];
-        }
-        return plaintext.join('');
-    }
-
-    isKeyTested(key) {
-        if (!this.useBloomFilter) return this.testedKeys.has(key);
-        return this.bloomActive ? this.testedKeysBloom.test(key) : this.testedKeys.has(key);
-    }
-
-    addTestedKey(key) {
-        if (this.useBloomFilter && !this.bloomActive) {
-            this.testedKeys.add(key);
-            if (this.testedKeys.size >= 100000) {
-                this.bloomActive = true;
-                this.testedKeys.clear();
-            }
-        } else if (this.useBloomFilter) {
-            this.testedKeysBloom.add(key);
-        } else {
-            this.testedKeys.add(key);
-        }
+        return plaintext;
     }
 
     scoreText(text) {
-        if (text.includes(this.primaryTarget)) return 1000;
+        const upperText = text.toUpperCase();
+        if (!this.primaryTargetFound && upperText.includes(this.primaryTarget)) {
+            return 1000;
+        }
 
         let score = 0;
         const freq = new Uint16Array(26);
         let totalLetters = 0;
 
+        // Частотный анализ
         for (let i = 0; i < text.length; i++) {
             const code = text.charCodeAt(i);
             if (code >= 65 && code <= 90) {
@@ -251,201 +139,222 @@ class K4Worker {
 
         if (totalLetters > 0) {
             for (let i = 0; i < 26; i++) {
-                const expected = this.englishFreqArray[i];
+                const expected = ENGLISH_FREQ[this.alphabet[i]] || 0;
                 const actual = (freq[i] / totalLetters) * 100;
                 score += 100 - Math.abs(expected - actual);
             }
         }
 
-        const commonCount = (text.match(this.commonRegex) || []).length;
-        const uncommonCount = (text.match(this.uncommonRegex) || []).length;
-        score += commonCount * 25 + uncommonCount * 50;
+        // Поиск распространенных слов
+        for (const pattern of commonPatterns) {
+            let pos = -1;
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 25;
+            }
+        }
+
+        // Поиск специальных слов
+        for (const pattern of uncommonPatterns) {
+            let pos = -1;
+            while ((pos = upperText.indexOf(pattern, pos + 1)) !== -1) {
+                score += pattern.length * 50;
+            }
+        }
 
         return Math.round(score);
     }
 
-    async processKeys() {
+    async run() {
         const startKey = this.workerId * Math.floor(this.totalKeysToTest / this.totalWorkers);
-        const endKey = (this.workerId === this.totalWorkers - 1) 
-            ? this.totalKeysToTest 
-            : startKey + Math.floor(this.totalKeysToTest / this.totalWorkers);
+        const endKey = (this.workerId === this.totalWorkers - 1) ? this.totalKeysToTest : 
+                      startKey + Math.floor(this.totalKeysToTest / this.totalWorkers);
 
         while (this.running && !this.completed) {
             switch (this.mode) {
-                case 'primarySearch':
-                    await this.processPrimarySearch(startKey, endKey);
-                    break;
                 case 'scan':
-                    await this.processScan(startKey, endKey);
+                    await this.fullScan(startKey, endKey);
                     break;
                 case 'optimize':
-                    await this.processOptimization();
+                    await this.optimizeKey();
                     break;
                 case 'explore':
-                    await this.processExploration();
+                    await this.exploreRandom();
+                    break;
+                case 'primarySearch':
+                    await this.findPrimaryTargets(startKey, endKey);
+                    this.mode = 'scan';
                     break;
             }
-            this.checkCompletion(endKey);
+            
+            // Проверка завершения
+            if (this.keysTested >= (endKey - startKey)) {
+                this.completed = true;
+                this.running = false;
+                self.postMessage({
+                    type: 'completed',
+                    keysTested: this.keysTested,
+                    bestScore: this.bestScore,
+                    bestKey: this.bestKey,
+                    bestPlaintext: this.bestPlaintext
+                });
+            }
+            
+            this.checkProgress();
         }
     }
 
-    async processPrimarySearch(startKey, endKey) {
-        const BLOCK_SIZE = 10000;
-        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
-            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            await this.processBlock(keyNum, blockEnd, true);
-            if (this.primaryTargetFound) break;
-            await this.yieldExecution();
-        }
-        this.mode = 'scan';
-    }
-
-    async processScan(startKey, endKey) {
+    async findPrimaryTargets(startKey, endKey) {
         const BLOCK_SIZE = 50000;
         for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
             const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
-            await this.processBlock(keyNum, blockEnd, false);
-            await this.yieldExecution();
-            this.checkStagnation();
-        }
-    }
-
-    async processBlock(start, end, isPrimarySearch) {
-        for (let keyNum = start; keyNum < end && this.running; keyNum++) {
-            const key = this.generateKey(keyNum);
-            if (this.isKeyTested(key)) continue;
-            this.addTestedKey(key);
             
-            const plaintext = this.decrypt(key);
-            const score = this.scoreText(plaintext);
-            this.keysTested++;
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                if (this.testedKeys.has(key)) continue;
+                this.testedKeys.add(key);
+                
+                const plaintext = this.decrypt(key);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
 
-            if (isPrimarySearch && plaintext.includes(this.primaryTarget)) {
-                this.handlePrimaryFound(key, plaintext, score);
+                if (plaintext.includes(this.primaryTarget)) {
+                    this.primaryResults.push({ key, plaintext, score });
+                    self.postMessage({
+                        type: 'primaryResult',
+                        key: key,
+                        plaintext: plaintext,
+                        score: score
+                    });
+                }
+                
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    this.bestKey = key;
+                    this.bestPlaintext = plaintext;
+                    this.lastImprovementTime = performance.now();
+                    self.postMessage({
+                        type: 'result',
+                        key: this.bestKey,
+                        plaintext: this.bestPlaintext,
+                        score: this.bestScore
+                    });
+                }
             }
 
-            if (score > this.bestScore) {
-                this.updateBestResults(key, plaintext, score);
+            if (performance.now() - this.lastReportTime > 1000) {
+                this.checkProgress();
             }
         }
     }
 
-    handlePrimaryFound(key, plaintext, score) {
-        this.primaryTargetFound = true;
-        this.primaryResults.push({ key, plaintext, score });
-        self.postMessage({
-            type: 'primaryResult',
-            key: key,
-            plaintext: plaintext,
-            score: score
-        });
+    async fullScan(startKey, endKey) {
+        const BLOCK_SIZE = 50000;
+        for (let keyNum = startKey; keyNum < endKey && this.running; keyNum += BLOCK_SIZE) {
+            const blockEnd = Math.min(keyNum + BLOCK_SIZE, endKey);
+            
+            for (let i = keyNum; i < blockEnd; i++) {
+                const key = this.generateKey(i);
+                if (this.testedKeys.has(key)) continue;
+                this.testedKeys.add(key);
+                
+                const plaintext = this.decrypt(key);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    this.bestKey = key;
+                    this.bestPlaintext = plaintext;
+                    this.lastImprovementTime = performance.now();
+                    self.postMessage({
+                        type: 'result',
+                        key: this.bestKey,
+                        plaintext: this.bestPlaintext,
+                        score: this.bestScore
+                    });
+                }
+            }
+
+            if (performance.now() - this.lastImprovementTime > 5000) {
+                this.mode = 'optimize';
+                break;
+            }
+        }
     }
 
-    updateBestResults(key, plaintext, score) {
-        this.bestScore = score;
-        this.bestKey = key;
-        this.bestPlaintext = plaintext;
-        this.lastImprovementTime = performance.now();
-        self.postMessage({
-            type: 'result',
-            key: this.bestKey,
-            plaintext: this.bestPlaintext,
-            score: this.bestScore
-        });
-    }
-
-    async processOptimization() {
+    async optimizeKey() {
+        const keyChars = this.bestKey.split('');
         let improved = false;
-        const keyArr = this.bestKey.split('');
-        const originalKey = this.bestKey;
 
         for (let pos = 0; pos < this.keyLength && this.running; pos++) {
-            const originalChar = keyArr[pos];
-            for (const delta of [-1, 1, -2, 2]) {
-                keyArr[pos] = this.getShiftedChar(originalChar, delta);
-                const newKey = keyArr.join('');
-                if (this.processKeyVariation(newKey)) {
+            const originalChar = keyChars[pos];
+            for (const delta of [-1, 1, -2, 2, -3, 3]) {
+                const newCharCode = (this.charMap[originalChar.charCodeAt(0)] + delta + 26) % 26;
+                const newChar = this.alphabet[newCharCode];
+                keyChars[pos] = newChar;
+                const newKey = keyChars.join('');
+                
+                if (this.testedKeys.has(newKey)) continue;
+                this.testedKeys.add(newKey);
+                
+                const plaintext = this.decrypt(newKey);
+                const score = this.scoreText(plaintext);
+                this.keysTested++;
+
+                if (score > this.bestScore) {
+                    this.bestScore = score;
+                    this.bestKey = newKey;
+                    this.bestPlaintext = plaintext;
                     improved = true;
+                    this.lastImprovementTime = performance.now();
+                    self.postMessage({
+                        type: 'result',
+                        key: this.bestKey,
+                        plaintext: this.bestPlaintext,
+                        score: this.bestScore
+                    });
                     break;
                 }
             }
-            if (!improved) keyArr[pos] = originalChar;
-            await this.yieldExecution();
+            keyChars[pos] = originalChar;
         }
 
-        this.handleOptimizationResult(improved, originalKey);
-    }
-
-    getShiftedChar(char, delta) {
-        const index = (this.charMap[char.charCodeAt(0)] + delta + 26) % 26;
-        return this.alphabet[index];
-    }
-
-    processKeyVariation(key) {
-        if (this.isKeyTested(key)) return false;
-        this.addTestedKey(key);
-        
-        const plaintext = this.decrypt(key);
-        const score = this.scoreText(plaintext);
-        this.keysTested++;
-
-        if (score > this.bestScore) {
-            this.updateBestResults(key, plaintext, score);
-            return true;
-        }
-        return false;
-    }
-
-    handleOptimizationResult(improved, originalKey) {
         if (!improved) {
             this.stuckCount++;
-            if (this.stuckCount > 3) {
+            if (this.stuckCount > 5) {
                 this.mode = 'explore';
                 this.stuckCount = 0;
             }
         } else {
             this.stuckCount = 0;
-            if (this.bestKey !== originalKey) {
-                this.mode = 'optimize';
-            }
         }
     }
 
-    async processExploration() {
-        const MAX_ATTEMPTS = 1000;
-        for (let i = 0; i < MAX_ATTEMPTS && this.running; i++) {
-            const key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
-            if (this.processKeyVariation(key)) {
-                this.mode = 'optimize';
-                break;
-            }
-            if (i % 50 === 0) await this.yieldExecution();
+    async exploreRandom() {
+        let attempts = 0;
+        const maxAttempts = 100;
+        let key;
+        
+        do {
+            key = this.generateKey(Math.floor(Math.random() * this.totalKeysToTest));
+            attempts++;
+        } while (this.testedKeys.has(key) && attempts < maxAttempts && this.running);
+        
+        if (attempts >= maxAttempts || !this.running) {
+            this.mode = 'scan';
+            return;
         }
-        if (this.running) this.mode = 'scan';
-    }
+        
+        this.testedKeys.add(key);
+        const plaintext = this.decrypt(key);
+        const score = this.scoreText(plaintext);
+        this.keysTested++;
 
-    checkCompletion(endKey) {
-        if (this.keysTested >= (endKey - this.workerId * (this.totalKeysToTest / this.totalWorkers))) {
-            this.completed = true;
-            this.running = false;
-            self.postMessage({
-                type: 'completed',
-                keysTested: this.keysTested,
-                bestScore: this.bestScore,
-                bestKey: this.bestKey,
-                bestPlaintext: this.bestPlaintext
-            });
-        }
-    }
-
-    checkStagnation() {
-        if (performance.now() - this.lastImprovementTime > 5000) {
+        if (score > this.bestScore * 0.8) {
             this.mode = 'optimize';
+        } else if (performance.now() - this.lastImprovementTime > 10000) {
+            this.mode = 'scan';
         }
-    }
-
-    yieldExecution() {
-        return new Promise(resolve => setTimeout(resolve, 0));
     }
 
     checkProgress() {
@@ -453,14 +362,15 @@ class K4Worker {
         if (now - this.lastReportTime > 1000) {
             const elapsed = (now - this.startTime) / 1000;
             const kps = elapsed > 0 ? Math.round(this.keysTested / elapsed) : 0;
-            const completion = (this.keysTested / (this.totalKeysToTest / this.totalWorkers)) * 100;
+            const completion = Math.min(100, (this.keysTested / (this.totalKeysToTest / this.totalWorkers)) * 100);
             
             self.postMessage({
                 type: 'progress',
                 keysTested: this.keysTested,
                 totalKeys: this.totalKeysToTest,
                 kps: kps,
-                completion: Math.min(100, completion).toFixed(2),
+                completion: completion.toFixed(2),
+                mode: this.mode,
                 bestScore: this.bestScore,
                 bestKey: this.bestKey,
                 bestPlaintext: this.bestPlaintext
