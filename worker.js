@@ -131,8 +131,8 @@ class K4Worker {
                     this.completed = false;
                     this.primaryTargetFound = false;
                     this.primaryResults = [];
-                    this.useBloomFilter = this.keyLength > 5; // Используем Bloom filter для длинных ключей
-                    this.adaptiveStrategy = this.keyLength > 5 ? 'optimizeFirst' : 'fullScan';
+                    this.useBloomFilter = this.keyLength > 12; // Используем Bloom filter для длинных ключей
+                    this.adaptiveStrategy = this.keyLength > 12 ? 'optimizeFirst' : 'fullScan';
                     break;
                 case 'start':
                     if (!this.running && !this.completed) {
