@@ -17,20 +17,10 @@ class K4Decryptor {
         this.resultsCache = new Set();
         this.knownWords = [];
 this.commonPatterns = [
-    'THE', 'AND', 'THAT', 'HAVE', 'FOR', 'NOT', 'WITH', 'YOU', 'THIS', 'WAY',
-    'HIS', 'FROM', 'THEY', 'WILL', 'WOULD', 'THERE', 'THEIR', 'WHAT', 'ABOUT',
-    'WHICH', 'WHEN', 'YOUR', 'WERE', 'CIA', 'NASA', 'FBI', 'USA', 'RUS',
-    'AGENT', 'CODE', 'SECRET', 'MESSAGE', 'WORLD', 'COUNTRY', 'CITY', 'TOWN',
-    'PERSON', 'KEY', 'ENEMY', 'ALLY', 'OF', 'TO'
+    'THE', 'AND', 'OF', 'TO'
 ];
 this.uncommonPatterns = [
-    'KRYPTOS', 'BERLINCLOCK', 'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK',
-    'SOUTH', 'NORTHEAST', 'NORTHWEST', 'SOUTHEAST', 'SOUTHWEST', 'COMPASS', 'LIGHT',
-    'LATITUDE', 'LONGITUDE', 'COORDINATE', 'SHADOW', 'WALL', 'UNDERGROUND', 'PALIMPSEST',
-    'ABSCISSA', 'CLOCKWISE', 'DIAGONAL', 'VERTICAL',
-    'HORIZONTAL', 'OBELISK', 'PYRAMID', 'SCULPTURE', 'CIPHER', 'ENCRYPT', 'DECRYPT',
-    'ALPHABET', 'LETTER', 'SYMBOL', 'SLOWLY', 'DESPERATELY', 'WEAKLY', 'DEEP',
-    'LAYER', 'QUESTION', 'ANSWER', 'SOLUTION', 'HIDDEN', 'COVER', 'REVEAL', 'TRUTH', 'MISSION'
+    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
