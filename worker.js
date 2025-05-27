@@ -12,7 +12,7 @@ const commonPatterns = [
 ];
 
 const uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL'
+    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL', 'SOUTH'
 ];
 
 class K4Worker {
