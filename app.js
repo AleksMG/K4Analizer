@@ -9,7 +9,7 @@ class K4Decryptor {
         this.bestScore = 0;
         this.bestResult = null;
         this.totalKeys = 0;
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBAKRYPTOS';
         this.alphabetShift = 0;
         this.workerStatus = {};
         this.lastProgressUpdate = 0;
@@ -17,10 +17,10 @@ class K4Decryptor {
         this.resultsCache = new Set();
         this.knownWords = [];
 this.commonPatterns = [
-    'THE', 'AND', 'OF', 'TO'
+    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT', 'WAY'
 ];
 this.uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK'
+    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
