@@ -8,16 +8,16 @@ const ENGLISH_FREQ = {
 };
 
 const commonPatterns = [
-    'THE', 'AND', 'OF', 'TO'
+    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT', 'WAY'
 ];
 
 const uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK'
+    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL'
 ];
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBASOTPYRK';
+        this.alphabet = 'ZXWVUQNMLJIHGFEDCBAKRYPTOS';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
