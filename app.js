@@ -20,7 +20,7 @@ this.commonPatterns = [
     'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT', 'WAY'
 ];
 this.uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL'
+    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL', 'SOUTH'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
