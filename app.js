@@ -129,7 +129,7 @@ this.uncommonPatterns = [
 
         const ciphertext = this.elements.ciphertext.value.trim().toUpperCase();
         if (!this.validateCiphertext(ciphertext)) {
-            alert('Invalid ciphertext! Must be exactly 97 uppercase letters (A-Z)');
+            alert('Invalid ciphertext! Must be exactly 18 uppercase letters (A-Z)');
             return;
         }
 
