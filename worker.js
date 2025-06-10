@@ -17,7 +17,7 @@ const uncommonPatterns = [
 
 class K4Worker {
     constructor() {
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBAKRYPTOS';
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.charMap = new Uint8Array(256);
         this.running = false;
         this.ciphertext = '';
