@@ -17,10 +17,7 @@ class K4Decryptor {
         this.resultsCache = new Set();
         this.knownWords = [];
 this.commonPatterns = [
-    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT', 'WAY'
-];
-this.uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL', 'SOUTH'
+    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT'
 ];
         // ► Оптимизации (ДОБАВЛЕНО)
         this.scoreCache = new Map();          // Кеш результатов оценки
