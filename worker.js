@@ -8,11 +8,7 @@ const ENGLISH_FREQ = {
 };
 
 const commonPatterns = [
-    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT', 'WAY'
-];
-
-const uncommonPatterns = [
-    'EAST', 'NORTH', 'WEST', 'BERLIN', 'CLOCK', 'WALL', 'SOUTH'
+    'THE', 'AND', 'OF', 'TO', 'ING', 'ION', 'ENT'
 ];
 
 class K4Worker {
