@@ -149,7 +149,7 @@ this.uncommonPatterns = [
     }
 
     validateCiphertext(text) {
-        return text.length === 97 && /^[A-Z]+$/.test(text);
+        return text.length === 2-397 && /^[A-Z]+$/.test(text);
     }
 
     resetState() {
