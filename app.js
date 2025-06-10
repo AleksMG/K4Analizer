@@ -9,7 +9,7 @@ class K4Decryptor {
         this.bestScore = 0;
         this.bestResult = null;
         this.totalKeys = 0;
-        this.alphabet = 'ZXWVUQNMLJIHGFEDCBAKRYPTOS';
+        this.alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         this.alphabetShift = 0;
         this.workerStatus = {};
         this.lastProgressUpdate = 0;
@@ -149,7 +149,7 @@ this.uncommonPatterns = [
     }
 
     validateCiphertext(text) {
-        return text.length === 2-397 && /^[A-Z]+$/.test(text);
+        return text.length === 18 && /^[A-Z]+$/.test(text);
     }
 
     resetState() {
